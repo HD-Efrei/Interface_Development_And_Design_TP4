@@ -4,82 +4,33 @@
   <meta charset="utf-8" />
   <title>SceneVR – Exercice 1</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <!-- Locomotion "clé en main" (stick gauche) -->
+  <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@7.6.0/dist/aframe-extras.controls.min.js"></script>
 
   <script>
-  // Utilitaires
-  function readStickAxes(axis){
-    // Certains profils/émulateurs envoient les sticks sur [2,3]
-    const ax = axis || [];
-    let x = ax[0] ?? 0, y = ax[1] ?? 0;
-    if (Math.abs(x) < 0.001 && Math.abs(y) < 0.001 && ax.length >= 4) {
-      x = ax[2] ?? 0; y = ax[3] ?? 0;
-    }
-    return {x, y};
-  }
-  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
-
-  // Joystick gauche = déplacement (g/d inversé corrigé)
-  AFRAME.registerComponent('left-stick-move', {
-    schema: { speed: {type:'number', default:3}, deadzone:{type:'number', default:0.05} },
-    init() {
-      this.axis = {x:0,y:0};
-      this.rig  = document.querySelector('#rig');
-      this.cam  = document.querySelector('#head');
-      this.el.addEventListener('axismove', e => { this.axis = readStickAxes(e.detail.axis); });
-    },
-    tick(t,dt){
-      if(!this.rig||!this.cam) return;
-      const s = this.data.speed*(dt/1000);
-      let {x,y} = this.axis;
-      if (Math.hypot(x,y) < this.data.deadzone) return;
-
-      const yaw=(this.rig.getAttribute('rotation')?.y||0)+(this.cam.getAttribute('rotation')?.y||0);
-      const rad=THREE.MathUtils.degToRad(yaw);
-      const forward=new THREE.Vector3(-Math.sin(rad),0,-Math.cos(rad));
-      const right  =new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0)).negate();
-
-      this.rig.object3D.position
-        .addScaledVector(forward, -y*s)  // avancer/reculer (inverse si tu préfères)
-        .addScaledVector(right,   -x*s); // gauche/droite (inversé corrigé)
-    }
-  });
-
-  // Joystick droit = yaw (VR+desktop) + pitch (desktop seulement)
-  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
-
-AFRAME.registerComponent('right-stick-turn', {
-  schema:{ turnSpeed:{type:'number',default:120}, deadzone:{type:'number',default:0.08} },
-  init(){
-    this.x=0; this.y=0;
-    this.rig   = document.querySelector('#rig');
-    this.pitch = document.querySelector('#pitch'); // ⬅️ on cible le pivot
-    this.el.addEventListener('axismove', e => {
-      const a = readStickAxes(e.detail.axis);
-      this.x = a.x; this.y = a.y;
+    /* Snap-turn simple: tourne le rig de ±30° quand le stick droit est poussé */
+    AFRAME.registerComponent('snap-turn', {
+      schema: { angle: {default: 30}, threshold: {default: 0.7}, cooldownMs: {default: 250} },
+      init() {
+        this._ready = true;
+        this.el.addEventListener('thumbstickmoved', (e) => {
+          const x = e.detail && typeof e.detail.x === 'number' ? e.detail.x : 0;
+          if (!this._ready || Math.abs(x) < this.data.threshold) return;
+          const rig = document.querySelector('#rig');
+          if (!rig) return;
+          const rot = rig.getAttribute('rotation') || {x:0,y:0,z:0};
+          // x>0 = stick à droite => tourner à droite (sens horaire)
+          rot.y += (x > 0 ? -this.data.angle : this.data.angle);
+          rig.setAttribute('rotation', rot);
+          this._ready = false;
+          setTimeout(() => this._ready = true, this.data.cooldownMs);
+        });
+      }
     });
-  },
-  tick(t,dt){
-    if(!this.rig) return;
-    const s = this.data.turnSpeed * (dt/1000);
-
-    // Yaw (gauche/droite) – sens inversé (comme avant)
-    let x=this.x;
-    if (Math.abs(x) >= this.data.deadzone) {
-      const rot=this.rig.getAttribute('rotation')||{x:0,y:0,z:0};
-      rot.y -= Math.sign(x)*Math.pow(Math.abs(x),1.3)*s;
-      this.rig.setAttribute('rotation', rot);
-    }
-
-    // Pitch (haut/bas) — en VR ET en desktop via le pivot
-    if (this.pitch && Math.abs(this.y) >= this.data.deadzone) {
-      const pr=this.pitch.getAttribute('rotation')||{x:0,y:0,z:0};
-      pr.x = clamp(pr.x + (-this.y)*s, -80, 80); // -y = mapping naturel
-      this.pitch.setAttribute('rotation', pr);
-    }
-  }
-});
-</script>
+  </script>
 
   <style>
     html,body{margin:0;height:100%}
@@ -88,58 +39,56 @@ AFRAME.registerComponent('right-stick-turn', {
   </style>
 </head>
 <body>
-  <div class="hud">🎮 Gauche: déplacer — Droite: tourner (desktop: stick droit = yaw + pitch)</div>
+  <div class="hud">🎮 Stick gauche = se déplacer | Stick droit = tourner (snap-turn)</div>
 
   <a-scene
     renderer="antialias:true; physicallyCorrectLights:true; colorManagement:true; logarithmicDepthBuffer:true; sortTransparentObjects:true"
     shadow="type: pcfsoft">
 
     <!-- Sol -->
-    <a-entity id="ground" geometry="primitive:plane;width:40;height:40"
-              rotation="-90 0 0" material="color:#7da07d;roughness:1;metalness:0"
+    <a-entity id="ground" geometry="primitive:plane; width:40; height:40"
+              rotation="-90 0 0"
+              material="color:#7da07d; roughness:1; metalness:0"
               shadow="receive:true"></a-entity>
 
     <!-- Objets -->
     <a-box position="-1 0.5 -3" depth="1" height="1" width="1"
-           material="color:#c94f4f;roughness:0.8;metalness:0.2"
-           shadow="cast:true;receive:true"></a-box>
+           material="color:#c94f4f; roughness:0.8; metalness:0.2"
+           shadow="cast:true; receive:true"></a-box>
     <a-sphere position="1 1 -2.5" radius="1"
-              material="color:#4f79c9;roughness:0.6;metalness:0.2"
-              shadow="cast:true;receive:true"></a-sphere>
+              material="color:#4f79c9; roughness:0.6; metalness:0.2"
+              shadow="cast:true; receive:true"></a-sphere>
 
     <!-- Lumières -->
-    <a-entity light="type:ambient;intensity:0.35;color:#fff"></a-entity>
+    <a-entity light="type:ambient; intensity:0.35; color:#fff"></a-entity>
     <a-entity id="sun"
-              light="type:directional;intensity:1;castShadow:true;shadowBias:-0.0003"
+              light="type:directional; intensity:1; castShadow:true; shadowBias:-0.0003"
               position="5 8 3" rotation="-45 30 0"></a-entity>
 
     <a-sky color="#ECECEC"></a-sky>
 
-    <!-- Rig + caméra + contrôleurs -->
-    <a-entity id="rig" position="0 1.6 5" rotation="0 0 0" wasd-controls="acceleration:20">
-    <!-- ⬇️ NOUVEAU pivot de pitch -->
-    <a-entity id="pitch" rotation="0 0 0">
-    <a-entity id="head" camera look-controls="pointerLockEnabled: true"></a-entity>
-    </a-entity>
+    <!-- RIG + caméra + contrôleurs -->
+    <!-- movement-controls = déplacement au stick gauche + clavier (desktop) -->
+    <a-entity id="rig" position="0 0 5" rotation="0 0 0"
+              movement-controls="speed: 0.2; fly: false">
 
-  <!-- Contrôleurs -->
-  <a-entity id="left"  hand-controls="hand: left"  left-stick-move="speed:3"></a-entity>
-  <a-entity id="right" hand-controls="hand: right" right-stick-turn="turnSpeed:120; deadzone:0.08"></a-entity>
-</a-entity>
+      <!-- Caméra à ~1.6m, look-controls = souris (desktop) + HMD (VR) -->
+      <a-entity id="head" camera position="0 1.6 0" look-controls="pointerLockEnabled:true"></a-entity>
+
+      <!-- Contrôleurs trackés (génériques). Pour Quest réel, tu peux passer à meta-touch-controls -->
+      <a-entity id="left"
+                laser-controls="hand: left">
+      </a-entity>
+
+      <a-entity id="right"
+                laser-controls="hand: right"
+                snap-turn="angle: 30; threshold: 0.7; cooldownMs: 250">
+      </a-entity>
+    </a-entity>
 
     <!-- WebXR -->
     <a-entity webxr="optionalFeatures: local-floor, bounded-floor"></a-entity>
 
-    <!-- (Optionnel) Logs sticks/boutons pour debug -->
-    <script>
-      document.querySelector('a-scene').addEventListener('loaded', () => {
-        ['left','right'].forEach(id=>{
-          const el=document.getElementById(id);
-          el.addEventListener('axismove', e=>console.log(id,'axes',e.detail.axis));
-          el.addEventListener('buttonchanged', e=>console.log(id,'button',e.detail));
-        });
-      });
-    </script>
   </a-scene>
 </body>
 </html>
