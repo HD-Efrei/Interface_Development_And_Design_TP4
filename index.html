@@ -2,13 +2,20 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <title>SceneVR – Exercice 1</title>
+  <title>SceneVR – Exercice 2 (Grab)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+
   <!-- Locomotion (stick gauche + WASD desktop) -->
   <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@7.6.0/dist/aframe-extras.controls.min.js"></script>
+
+  <!-- Physique (cannon driver) -->
+  <script src="https://cdn.jsdelivr.net/npm/aframe-physics-system@4.0.1/dist/aframe-physics-system.min.js"></script>
+
+  <!-- Super Hands (grab/release + interactions proches) -->
+  <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-super-hands-component@5.0.2/dist/aframe-super-hands.min.js"></script>
 
   <script>
   // Rotation FLUIDE au stick droit (yaw)
@@ -26,6 +33,48 @@
       rig.setAttribute('rotation', rot);
     }
   });
+
+  // Accroupi logiciel (descend/monte le rig pour atteindre les objets)
+  AFRAME.registerComponent('crouch-controls', {
+    schema: {
+      amount:   {default: 0.6},
+      mode:     {default: 'hold'}, // 'hold' ou 'toggle'
+      key:      {default: 'KeyC'},
+      button:   {default: 'thumbstick'} // clic du stick
+    },
+    init(){
+      const rig = this.el;
+      this.baseY  = rig.object3D.position.y;
+      this.target = this.baseY;
+      this.state  = false;
+
+      window.addEventListener('keydown', (e)=>{
+        if (e.code !== this.data.key) return;
+        this.state = (this.data.mode==='toggle') ? !this.state : true;
+        this._updateTarget();
+      });
+      window.addEventListener('keyup', (e)=>{
+        if (e.code !== this.data.key) return;
+        if (this.data.mode==='hold'){ this.state=false; this._updateTarget(); }
+      });
+
+      const bindBtn = (el, name) => {
+        if (!el) return;
+        const down = ()=>{ this.state = (this.data.mode==='toggle') ? !this.state : true;  this._updateTarget(); };
+        const up   = ()=>{ if (this.data.mode==='hold'){ this.state=false; this._updateTarget(); } };
+        el.addEventListener(name+'down', down);
+        el.addEventListener(name+'up',   up);
+        if (name==='thumbstick'){ el.addEventListener('thumbstickdown', down); el.addEventListener('thumbstickup', up); }
+      };
+      bindBtn(document.getElementById('left'),  this.data.button);
+      bindBtn(document.getElementById('right'), this.data.button);
+    },
+    _updateTarget(){ this.target = this.state ? (this.baseY - this.data.amount) : this.baseY; },
+    tick(t,dt){
+      const pos = this.el.object3D.position;
+      pos.y += (this.target - pos.y) * Math.min(1, (dt/1000)*10);
+    }
+  });
   </script>
 
   <style>
@@ -35,25 +84,36 @@
   </style>
 </head>
 <body>
-  <div class="hud">🎮 Stick gauche = se déplacer | Stick droit = tourner (smooth)</div>
+  <div class="hud">
+    🎮 Gauche = se déplacer (stick/WASD) · Droite = tourner (smooth) ·
+    Accroupi = <b>C</b> / <b>clic stick</b> · <b>Grip</b> = saisir/relâcher
+  </div>
 
   <a-scene
     renderer="antialias:true; colorManagement:true; logarithmicDepthBuffer:true; sortTransparentObjects:true"
-    shadow="type: pcfsoft">
+    shadow="type: pcfsoft"
+    physics="driver: cannon; gravity: -9.8; debug: false">
 
-    <!-- Sol -->
-    <a-entity id="ground" geometry="primitive:plane; width:40; height:40"
+    <!-- Sol (statique) -->
+    <a-entity id="ground"
+              geometry="primitive:plane; width:40; height:40"
               rotation="-90 0 0"
               material="color:#7da07d; roughness:1; metalness:0"
-              shadow="receive:true"></a-entity>
+              shadow="receive:true"
+              static-body></a-entity>
 
-    <!-- Objets -->
-    <a-box position="-1 0.5 -3" depth="1" height="1" width="1"
+    <!-- Objets GRABBABLES (dynamiques) -->
+    <a-box class="grabbable"
+           position="-1 0.5 -3" depth="1" height="1" width="1"
            material="color:#c94f4f; roughness:0.8; metalness:0.2"
-           shadow="cast:true; receive:true"></a-box>
-    <a-sphere position="1 1 -2.5" radius="1"
+           shadow="cast:true; receive:true"
+           dynamic-body="mass: 1; shape: box"></a-box>
+
+    <a-sphere class="grabbable"
+              position="1 1 -2.5" radius="0.5"
               material="color:#4f79c9; roughness:0.6; metalness:0.2"
-              shadow="cast:true; receive:true"></a-sphere>
+              shadow="cast:true; receive:true"
+              dynamic-body="mass: 0.5; shape: sphere"></a-sphere>
 
     <!-- Lumières -->
     <a-entity light="type:ambient; intensity:0.35; color:#fff"></a-entity>
@@ -65,14 +125,28 @@
 
     <!-- RIG + caméra + contrôleurs -->
     <a-entity id="rig" position="0 0 5" rotation="0 0 0"
-              movement-controls="speed: 0.2; fly: false">
+              movement-controls="speed: 0.2; fly: false"
+              crouch-controls="amount:0.6; mode:hold; key:KeyC; button:thumbstick">
 
       <!-- Caméra (VR: HMD, Desktop: souris) -->
       <a-entity id="head" camera position="0 1.6 0" look-controls="pointerLockEnabled:true"></a-entity>
 
-      <!-- Contrôleurs (génériques). Sur Quest réel: remplace par meta-touch-controls -->
-      <a-entity id="left"  laser-controls="hand: left"></a-entity>
-      <a-entity id="right" laser-controls="hand: right" smooth-turn="speed: 140; deadzone: 0.08"></a-entity>
+      <!-- Contrôleurs (génériques). Sur Quest réel: passe à meta-touch-controls -->
+      <!-- super-hands + sphere-collider = grab de proximité, grip = prise/relâche -->
+      <a-entity id="left"
+                laser-controls="hand: left"
+                sphere-collider="objects: .grabbable"
+                super-hands="colliderEvent: collisions;
+                             grabStartButtons: gripdown; grabEndButtons: gripup">
+      </a-entity>
+
+      <a-entity id="right"
+                laser-controls="hand: right"
+                sphere-collider="objects: .grabbable"
+                super-hands="colliderEvent: collisions;
+                             grabStartButtons: gripdown; grabEndButtons: gripup"
+                smooth-turn="speed: 140; deadzone: 0.08">
+      </a-entity>
 
     </a-entity>
 
