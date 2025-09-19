@@ -7,29 +7,25 @@
 
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-  <!-- Locomotion "clé en main" (stick gauche) -->
+  <!-- Locomotion (stick gauche + WASD desktop) -->
   <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@7.6.0/dist/aframe-extras.controls.min.js"></script>
 
   <script>
-    /* Snap-turn simple: tourne le rig de ±30° quand le stick droit est poussé */
-    AFRAME.registerComponent('snap-turn', {
-      schema: { angle: {default: 30}, threshold: {default: 0.7}, cooldownMs: {default: 250} },
-      init() {
-        this._ready = true;
-        this.el.addEventListener('thumbstickmoved', (e) => {
-          const x = e.detail && typeof e.detail.x === 'number' ? e.detail.x : 0;
-          if (!this._ready || Math.abs(x) < this.data.threshold) return;
-          const rig = document.querySelector('#rig');
-          if (!rig) return;
-          const rot = rig.getAttribute('rotation') || {x:0,y:0,z:0};
-          // x>0 = stick à droite => tourner à droite (sens horaire)
-          rot.y += (x > 0 ? -this.data.angle : this.data.angle);
-          rig.setAttribute('rotation', rot);
-          this._ready = false;
-          setTimeout(() => this._ready = true, this.data.cooldownMs);
-        });
-      }
-    });
+  // Rotation FLUIDE au stick droit (yaw)
+  AFRAME.registerComponent('smooth-turn', {
+    schema:{ speed:{default:140}, deadzone:{default:0.08} }, // degrés/s
+    init(){
+      this.x = 0;
+      this.el.addEventListener('thumbstickmoved', e => { this.x = e?.detail?.x ?? 0; });
+    },
+    tick(t,dt){
+      const rig = document.querySelector('#rig'); if(!rig) return;
+      const x = this.x; if (Math.abs(x) < this.data.deadzone) return;
+      const rot = rig.getAttribute('rotation') || {x:0,y:0,z:0};
+      rot.y -= x * this.data.speed * (dt/1000); // mets + si tu préfères l'autre sens
+      rig.setAttribute('rotation', rot);
+    }
+  });
   </script>
 
   <style>
@@ -39,10 +35,10 @@
   </style>
 </head>
 <body>
-  <div class="hud">🎮 Stick gauche = se déplacer | Stick droit = tourner (snap-turn)</div>
+  <div class="hud">🎮 Stick gauche = se déplacer | Stick droit = tourner (smooth)</div>
 
   <a-scene
-    renderer="antialias:true; physicallyCorrectLights:true; colorManagement:true; logarithmicDepthBuffer:true; sortTransparentObjects:true"
+    renderer="antialias:true; colorManagement:true; logarithmicDepthBuffer:true; sortTransparentObjects:true"
     shadow="type: pcfsoft">
 
     <!-- Sol -->
@@ -68,22 +64,16 @@
     <a-sky color="#ECECEC"></a-sky>
 
     <!-- RIG + caméra + contrôleurs -->
-    <!-- movement-controls = déplacement au stick gauche + clavier (desktop) -->
     <a-entity id="rig" position="0 0 5" rotation="0 0 0"
               movement-controls="speed: 0.2; fly: false">
 
-      <!-- Caméra à ~1.6m, look-controls = souris (desktop) + HMD (VR) -->
+      <!-- Caméra (VR: HMD, Desktop: souris) -->
       <a-entity id="head" camera position="0 1.6 0" look-controls="pointerLockEnabled:true"></a-entity>
 
-      <!-- Contrôleurs trackés (génériques). Pour Quest réel, tu peux passer à meta-touch-controls -->
-      <a-entity id="left"
-                laser-controls="hand: left">
-      </a-entity>
+      <!-- Contrôleurs (génériques). Sur Quest réel: remplace par meta-touch-controls -->
+      <a-entity id="left"  laser-controls="hand: left"></a-entity>
+      <a-entity id="right" laser-controls="hand: right" smooth-turn="speed: 140; deadzone: 0.08"></a-entity>
 
-      <a-entity id="right"
-                laser-controls="hand: right"
-                snap-turn="angle: 30; threshold: 0.7; cooldownMs: 250">
-      </a-entity>
     </a-entity>
 
     <!-- WebXR -->
