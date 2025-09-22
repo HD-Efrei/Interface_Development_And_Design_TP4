@@ -197,43 +197,118 @@ AFRAME.registerComponent('vr-grab-attach', {
   }
 });
 
-
-
-    // Spawner : bouton A (droite) ou touche N — (laisse comme précédemment)
-    AFRAME.registerComponent('spawner', {
-      schema:{camera:{type:'selector'}},
-      init(){
-        this.spawn=this.spawn.bind(this);
-        this.el.addEventListener('abuttondown', this.spawn);
-        window.addEventListener('keydown', e=>{ if(e.key.toLowerCase()==='n') this.spawn(); });
-        setTimeout(()=>{ this.spawn(); this.spawn(); this.spawn(); }, 400);
-      },
-      spawn(){
-        const camEl=this.data.camera; if(!camEl) return;
-        const cam=camEl.object3D, dir=new THREE.Vector3(); cam.getWorldDirection(dir);
-        dir.y=0; dir.normalize();
-        // garde le spawn devant toi (ajusté précédemment)
-        const origin=camEl.object3D.getWorldPosition(new THREE.Vector3());
-        const pos=origin.clone().add(dir.multiplyScalar(-1.4)); // -1.4 pour "devant" selon la direction retournée
-        pos.y=1.3;
-
-        const isBox=Math.random()<0.5;
-        const el=document.createElement(isBox?'a-box':'a-sphere');
-        el.className='grab-target hoverable grabbable';
-        if(isBox){ el.setAttribute('width',0.45); el.setAttribute('height',0.45); el.setAttribute('depth',0.45);}
-        else{ el.setAttribute('radius',0.28); }
-        el.setAttribute('color','#'+(Math.random()*0xFFFFFF|0).toString(16).padStart(6,'0'));
-        el.setAttribute('position',`${pos.x} ${pos.y} ${pos.z}`);
-        el.setAttribute('material','roughness:0.5; metalness:0.05');
-        el.setAttribute('hover-highlight','');
-        el.setAttribute('hoverable','');
-        el.setAttribute('grabbable','');
-        el.setAttribute('draggable','');
-        el.setAttribute('dynamic-body','mass:1');
-        el.setAttribute('vr-grab-attach','');
-        document.querySelector('a-scene').appendChild(el);
-      }
+// Spawner d'objets sur une table fixe : sphère, cube, pistolet
+AFRAME.registerComponent('table-spawn', {
+  schema: {
+    // id de la table (plateau) à utiliser
+    tableId: {default: 'tableTop'}
+  },
+  init() {
+    this.spawnAll = this.spawnAll.bind(this);
+    // Spawn au démarrage (petit délai pour laisser la scène s'initialiser)
+    setTimeout(this.spawnAll, 400);
+    // Bouton A de la manette droite = respawn
+    this.el.addEventListener('abuttondown', this.spawnAll);
+    // Touche N du clavier = respawn (pratique sur desktop)
+    window.addEventListener('keydown', e => {
+      if ((e.key||'').toLowerCase() === 'n') this.spawnAll();
     });
+  },
+
+  // utilitaire: crée ou met à jour une entité avec attributs
+  _make(tag, attrs) {
+    const el = document.createElement(tag);
+    for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v);
+    return el;
+  },
+
+  // supprime les anciens objets spawnés
+  _clearOld() {
+    document.querySelectorAll('.spawned-on-table').forEach(n => n.remove());
+  },
+
+  spawnAll() {
+    const scene = this.el.sceneEl;
+    // 1) assurer la présence d'une table
+    let table = document.getElementById(this.data.tableId);
+    if (!table) {
+      table = this._make('a-box', {
+        id: this.data.tableId,
+        position: '0 1.25 -3',
+        width: 1.6, height: 0.05, depth: 0.9,
+        color: '#8B5A2B',
+        'static-body': '',
+        shadow: 'cast:true; receive:true'
+      });
+      scene.appendChild(table);
+      // 4 pieds simples (optionnels)
+      const feet = [
+        {x:-0.7, z:-3.35}, {x:0.7, z:-3.35}, {x:-0.7, z:-2.65}, {x:0.7, z:-2.65}
+      ];
+      feet.forEach(p=>{
+        scene.appendChild(this._make('a-box',{
+          position: `${p.x} 0.5 ${p.z}`,
+          width:0.08, height:1.5, depth:0.08,
+          color:'#6E4A20', 'static-body':'', shadow:'cast:true;receive:true'
+        }));
+      });
+    }
+
+    // 2) coordonnées du dessus de table
+    const tPos = table.getAttribute('position');
+    const tHeight = parseFloat(table.getAttribute('height')) || 0.05;
+    const topY = tPos.y + tHeight/2;
+
+    // 3) nettoyer les anciens
+    this._clearOld();
+
+    // Paramètres communs d’interaction
+    const common = {
+      class: 'grab-target hoverable grabbable spawned-on-table',
+      'hover-highlight': '',
+      'dynamic-body': 'mass:1',
+      'vr-grab-attach': '' // ← notre composant d’attache main (que tu as ajouté)
+    };
+
+    // Table
+    <a-box id="tableTop" position="0 1.25 -3" width="1.6" height="0.05" depth="0.9"
+       color="#8B5A2B" static-body shadow="cast:true;receive:true"></a-box>
+
+
+    // --- CUBE ---
+    const cube = this._make('a-box', {
+      ...common,
+      color: '#4CC3D9',
+      width: 0.5, height: 0.5, depth: 0.5,
+      position: `${tPos.x - 0.5} ${topY + 0.25} ${tPos.z - 0.1}`,
+      shadow: 'cast:true; receive:true',
+      material: 'roughness:0.5; metalness:0.05'
+    });
+    scene.appendChild(cube);
+
+    // --- SPHÈRE ---
+    const sphere = this._make('a-sphere', {
+      ...common,
+      color: '#EF2D5E',
+      radius: 0.35,
+      position: `${tPos.x + 0.3} ${topY + 0.35} ${tPos.z - 0.2}`,
+      shadow: 'cast:true; receive:true',
+      material: 'roughness:0.5; metalness:0.05'
+    });
+    scene.appendChild(sphere);
+
+    // --- “PISTOLET” (bloc simple) ---
+    const gun = this._make('a-box', {
+      ...common,
+      color: '#222222',
+      width: 0.12, height: 0.07, depth: 0.22,
+      position: `${tPos.x + 0.7} ${topY + 0.035} ${tPos.z + 0.1}`,
+      shadow: 'cast:true; receive:true',
+      material: 'roughness:0.4; metalness:0.2'
+    });
+    scene.appendChild(gun);
+  }
+});
   </script>
 </head>
 <body>
@@ -281,18 +356,19 @@ AFRAME.registerComponent('vr-grab-attach', {
 
 <!-- DROITE -->
 <a-entity id="rightCtl"
-  oculus-touch-controls="hand: right"
-  right-stick-smoothturn="rig:#rig; speedDeg:140; dead:0.18"
-  laser-controls="hand: right"
-  raycaster="objects:.grab-target; showLine:true; far:8; interval:0"
-  sphere-collider="objects:.grab-target"
-  super-hands="colliderEvent: raycaster-intersection;
-               colliderEndEvent: raycaster-intersection-cleared;
-               colliderEventProperty: els;
-               grabStartButtons: triggerdown, gripdown;
-               grabEndButtons: triggerup, gripup"
-  spawner="camera:#cam">
+          oculus-touch-controls="hand: right"
+          right-stick-smoothturn="rig:#rig; speedDeg:140; dead:0.18"
+          laser-controls="hand: right"
+          raycaster="objects:.grab-target; showLine:true; far:8; interval:0"
+          sphere-collider="objects:.grab-target"
+          super-hands="colliderEvent: raycaster-intersection;
+                       colliderEndEvent: raycaster-intersection-cleared;
+                       colliderEventProperty: els;
+                       grabStartButtons: triggerdown, gripdown;
+                       grabEndButtons: triggerup, gripup"
+          table-spawn>
 </a-entity>
+
 
 
     </a-entity>
