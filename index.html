@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TP WebVR – A-Frame 1.7.0 + super-hands 3.x (lasers fix + trigger move)</title>
+  <title>TP WebVR – A-Frame 1.7.0 (lasers par défaut + locomotion sticks)</title>
 
   <!-- A-Frame 1.7.0 -->
   <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
@@ -11,10 +11,10 @@
   <!-- Éviter conflit de nom "grabbable" (super-hands) -->
   <script> if (AFRAME.components && AFRAME.components["grabbable"]) { delete AFRAME.components["grabbable"]; } </script>
 
-  <!-- aframe-extras (movement-controls, sphere-collider) -->
+  <!-- aframe-extras (on ne prend QUE ce dont on a besoin, pas movement-controls) -->
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.5.2/dist/aframe-extras.min.js"></script>
 
-  <!-- Physics system (CANNON/Ammo support) -->
+  <!-- Physics system -->
   <script src="https://cdn.jsdelivr.net/npm/@c-frame/aframe-physics-system@4.1.0/dist/aframe-physics-system.min.js"></script>
 
   <!-- super-hands 3.x -->
@@ -31,47 +31,78 @@
   </style>
 
   <script>
-    // Rotation du rig avec le joystick droit
-    AFRAME.registerComponent('turn-with-right-joystick', {
-      schema: { rig: {type: 'selector'}, speed: {default: 140} }, // °/s à stick=1
+    // Déplacement analogique avec le JOYSTICK GAUCHE (sans movement-controls)
+    // Ecoute 'axismove' de la main gauche (laser-controls) et translate le RIG sur X/Z.
+    AFRAME.registerComponent('thumb-move', {
+      schema: { rig: {type:'selector'}, speed: {default: 1.5}, dead: {default: 0.18} }, // m/s
       init() {
-        this.x = 0; this.dead = 0.15;
-        // On écoute l'entité qui reçoit les events du contrôleur (la main parente)
+        this.x = 0; this.y = 0;
+        this.dir = new THREE.Vector3();
         this.el.addEventListener('axismove', e => {
-          if (e && e.detail && Array.isArray(e.detail.axis)) this.x = e.detail.axis[0] || 0;
+          if (!e.detail || !Array.isArray(e.detail.axis)) return;
+          // axis[0] = gauche/droite, axis[1] = avant/arrière (vers l'AVANT = négatif sur Oculus)
+          this.x = e.detail.axis[0] || 0;
+          this.y = e.detail.axis[1] || 0;
         });
       },
       tick(t, dt) {
-        const rig = this.data.rig; if (!rig) return;
-        const stick = Math.abs(this.x) > this.dead ? this.x : 0; if (!stick) return;
-        const rot = rig.getAttribute('rotation');
-        rot.y -= stick * this.data.speed * (dt/1000);
-        rig.setAttribute('rotation', rot);
+        const rig = this.data.rig && this.data.rig.object3D;
+        if (!rig) return;
+        const dead = this.data.dead;
+        const ax = (Math.abs(this.x) > dead) ? this.x : 0;
+        const ay = (Math.abs(this.y) > dead) ? this.y : 0;
+        if (!ax && !ay) return;
+
+        // Déplacement relatif à l'orientation Y du rig (comme un FPS)
+        const yaw = THREE.MathUtils.degToRad(this.data.rig.getAttribute('rotation').y);
+        const cos = Math.cos(yaw), sin = Math.sin(yaw);
+
+        // Sur Oculus, pousser le stick vers l'avant donne axis[1] ~ -1
+        // Donc "avant" = -ay
+        const forward = -ay, strafe = ax;
+
+        const dx = (strafe * cos + forward * sin) * this.data.speed * (dt/1000);
+        const dz = (forward * cos - strafe * sin) * this.data.speed * (dt/1000);
+
+        rig.position.x += dx;
+        rig.position.z += dz;
       }
     });
 
-    // Avancer quand on maintient la gâchette droite
-    AFRAME.registerComponent('trigger-move', {
-      schema: { rig: {type:'selector'}, camera: {type:'selector'}, speed: {default: 1.2} }, // m/s
+    // Snap-turn au JOYSTICK DROIT (paliers)
+    AFRAME.registerComponent('snap-turn', {
+      schema: { rig: {type:'selector'}, stepDeg: {default: 30}, threshold: {default: 0.6}, cooldownMs: {default: 220} },
       init() {
-        this.moving = false;
-        this.dir = new THREE.Vector3();
-        this.el.addEventListener('triggerdown', () => { this.moving = true; });
-        this.el.addEventListener('triggerup',   () => { this.moving = false; });
+        this.lastTime = 0;
+        this.stickX = 0;
+        this.el.addEventListener('axismove', e => {
+          if (!e.detail || !Array.isArray(e.detail.axis)) return;
+          this.stickX = e.detail.axis[0] || 0; // horizontal
+        });
       },
-      tick(t, dt) {
-        if (!this.moving || !this.data.rig || !this.data.camera) return;
-        const rig = this.data.rig.object3D;
-        const cam = this.data.camera.object3D;
-        // direction "avant" de la caméra (XZ uniquement)
-        cam.getWorldDirection(this.dir);
-        this.dir.y = 0; this.dir.normalize();
-        const step = (this.data.speed * dt/1000);
-        rig.position.addScaledVector(this.dir, step);
+      tick(t) {
+        const rig = this.data.rig;
+        if (!rig) return;
+        const now = t || performance.now();
+        if (now - this.lastTime < this.data.cooldownMs) return;
+
+        const x = this.stickX;
+        if (x > this.data.threshold) {
+          this.turn(-this.data.stepDeg); // droite -> tourner à droite (sens horaire)
+          this.lastTime = now;
+        } else if (x < -this.data.threshold) {
+          this.turn(this.data.stepDeg);  // gauche -> tourner à gauche
+          this.lastTime = now;
+        }
+      },
+      turn(deltaDeg) {
+        const rot = this.data.rig.getAttribute('rotation');
+        rot.y += deltaDeg;
+        this.data.rig.setAttribute('rotation', rot);
       }
     });
 
-    // Highlight des cibles au survol / grab
+    // Effet survol / grab
     AFRAME.registerComponent('hover-highlight', {
       schema: { hoverScale: {default: 1.06}, hoverEmissive: {default: '#ffffff'}, hoverIntensity: {default: 0.45} },
       init() {
@@ -96,16 +127,10 @@
         el.object3D.scale.setScalar(state ? this.data.hoverScale : this._origScale.x);
         const mat = this._getMat();
         if (mat) {
-          if (state) {
-            if (!mat.emissive) mat.emissive = new THREE.Color(this.data.hoverEmissive);
-            else mat.emissive.set(this.data.hoverEmissive);
-            mat.emissiveIntensity = this.data.hoverIntensity;
-            mat.needsUpdate = true;
-          } else {
-            if (this._origEmissive) mat.emissive.copy(this._origEmissive);
-            mat.emissiveIntensity = this._origEmissiveIntensity;
-            mat.needsUpdate = true;
-          }
+          if (state) { (mat.emissive || (mat.emissive = new THREE.Color(this.data.hoverEmissive))).set(this.data.hoverEmissive);
+            mat.emissiveIntensity = this.data.hoverIntensity; mat.needsUpdate = true; }
+          else { if (this._origEmissive) mat.emissive.copy(this._origEmissive);
+            mat.emissiveIntensity = this._origEmissiveIntensity; mat.needsUpdate = true; }
         }
       },
       remove() {
@@ -116,36 +141,16 @@
         el.removeEventListener('grab-end', this._ge);
       }
     });
-
-    // Pointeur qui suit l’intersection du rayon (debug)
-    AFRAME.registerComponent('ray-hit-dot', {
-      schema: { raycasterEl: {type: 'selector'} },
-      init() {
-        this.visible = false;
-        this.el.setAttribute('visible', 'false');
-        const rc = this.data.raycasterEl;
-        if (!rc) return;
-        rc.addEventListener('raycaster-intersection', e => {
-          if (!e.detail || !e.detail.intersections || !e.detail.intersections[0]) return;
-          const p = e.detail.intersections[0].point;
-          this.el.object3D.position.copy(p);
-          if (!this.visible) { this.visible = true; this.el.setAttribute('visible', 'true'); }
-        });
-        rc.addEventListener('raycaster-intersection-cleared', () => {
-          if (this.visible) { this.visible = false; this.el.setAttribute('visible', 'false'); }
-        });
-      }
-    });
   </script>
 </head>
 
 <body>
   <div class="overlay">
-    <strong>TP WebVR – Ex.1 & Ex.2</strong><br/>
-    🧭 Gauche : joystick = déplacement (laser court debug + grab proche)<br/>
-    ↪️ Droit : joystick = rotation • <strong>Gâchette droite = avancer</strong><br/>
-    🤏 Gâchettes : saisir / relâcher • 🔵 Point blanc = impact rayon droit<br/>
-    🛠️ Inspector : <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd>
+    <strong>Commandes</strong><br/>
+    🧭 <b>Stick gauche</b> : se déplacer (avant/arrière/gauche/droite)<br/>
+    🔁 <b>Stick droit</b> : rotation par paliers (snap-turn)<br/>
+    🤏 <b>Gâchettes</b> : saisir / relâcher (super-hands)<br/>
+    🎯 Lasers “par défaut” d’A-Frame (sortent des manettes)
   </div>
 
   <a-scene
@@ -165,7 +170,7 @@
              color="#3c424a" material="roughness:1; metalness:0"
              shadow="receive: true" static-body></a-plane>
 
-    <!-- Objets dynamiques, saisissables, hoverables -->
+    <!-- Objets dynamiques -->
     <a-box class="grabbable hoverable" hover-highlight
            position="-1 1.25 -3" width="1" height="1" depth="1"
            color="#ff6f61" material="roughness:.6; metalness:.1"
@@ -186,39 +191,25 @@
            position="-0.6 0.5 -2.2" width="0.5" height="0.5" depth="0.5"
            color="#ef476f" shadow="cast: true; receive: true" dynamic-body grabbable></a-box>
 
-    <!-- Rig + Caméra + Mains -->
-    <a-entity id="rig" position="0 1.6 3"
-              movement-controls="fly:false; speed:0.12; constrainToNavMesh:false">
+    <!-- RIG + Caméra -->
+    <a-entity id="rig" position="0 1.6 3">
       <a-entity id="cam" camera look-controls wasd-controls="enabled:false"></a-entity>
 
-      <!-- MAIN GAUCHE : main visible + laser court correct + grab proche -->
-      <a-entity id="leftHand" hand-controls="hand: left; handModelStyle: lowPoly; color: #ccccff">
-        <!-- rayon correctement orienté par laser-controls (modèle ray uniquement) -->
-        <a-entity id="leftPointer"
-                  laser-controls="hand: left; model: false"
-                  super-hands
-                  sphere-collider="objects: .grabbable"
-                  raycaster="objects: .grabbable; showLine: true; far: 2.2">
-        </a-entity>
+      <!-- MAIN GAUCHE : lasers par défaut + locomotion stick gauche -->
+      <a-entity id="left"
+                laser-controls="hand: left"
+                super-hands
+                thumb-move="rig: #rig; speed: 1.6; dead: 0.18"
+                sphere-collider="objects: .grabbable">
       </a-entity>
 
-      <!-- MAIN DROITE : main visible + laser long + rotation joystick + avance gâchette -->
-      <a-entity id="rightHand"
-                hand-controls="hand: right; handModelStyle: highPoly; color: #ffcccc"
-                turn-with-right-joystick="rig: #rig; speed: 140"
-                trigger-move="rig: #rig; camera: #cam; speed: 1.2">
-        <a-entity id="rightPointer"
-                  laser-controls="hand: right; model: false"
-                  super-hands
-                  raycaster="objects: .grabbable; showLine: true; far: 8"
-                  line="opacity: 0.95">
-        </a-entity>
+      <!-- MAIN DROITE : lasers par défaut + snap-turn stick droit -->
+      <a-entity id="right"
+                laser-controls="hand: right"
+                super-hands
+                snap-turn="rig: #rig; stepDeg: 30; threshold: 0.6; cooldownMs: 220">
       </a-entity>
     </a-entity>
-
-    <!-- Pointeur d'impact (rayon droit) -->
-    <a-sphere id="hitDot" radius="0.02" color="#ffffff" visible="false"
-              ray-hit-dot="raycasterEl: #rightPointer"></a-sphere>
 
     <a-sky color="#1b2026"></a-sky>
   </a-scene>
