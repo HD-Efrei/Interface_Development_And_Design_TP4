@@ -176,18 +176,33 @@
       <a-entity id="cam" camera look-controls wasd-controls="enabled:false"></a-entity>
 
       <!-- MAIN GAUCHE : locomotion -->
-      <a-entity id="leftCtl" oculus-touch-controls="hand: left"
-                left-stick-move="rig:#rig; speed:2.2; dead:0.18"
-                super-hands sphere-collider="objects:.grab-target">
-        <a-entity laser-controls="hand: left" raycaster="objects:.grab-target; showLine:true; far:8"></a-entity>
-      </a-entity>
+      <!-- MAIN GAUCHE : déplacement (left-stick-move) + grab proche (sphere-collider) + grab à distance (raycaster) -->
+<a-entity id="leftCtl"
+          oculus-touch-controls="hand: left"
+          left-stick-move="rig:#rig; speed:2.2; dead:0.18"
+          laser-controls="hand: left"
+          raycaster="objects:.grab-target; showLine:true; far:8"
+          sphere-collider="objects:.grab-target"
+          super-hands="colliderEvent: raycaster-intersection;
+                       colliderEventProperty: els;
+                       grabStartButtons: triggerdown, gripdown;
+                       grabEndButtons: triggerup, gripup">
+</a-entity>
 
-      <!-- MAIN DROITE : rotation lisse + spawn -->
-      <a-entity id="rightCtl" oculus-touch-controls="hand: right"
-                right-stick-smoothturn="rig:#rig; speedDeg:140; dead:0.18"
-                super-hands spawner="camera:#cam">
-        <a-entity laser-controls="hand: right" raycaster="objects:.grab-target; showLine:true; far:8"></a-entity>
-      </a-entity>
+<!-- MAIN DROITE : rotation lisse (right-stick-smoothturn) + grab proche + grab à distance + spawn -->
+<a-entity id="rightCtl"
+          oculus-touch-controls="hand: right"
+          right-stick-smoothturn="rig:#rig; speedDeg:140; dead:0.18"
+          laser-controls="hand: right"
+          raycaster="objects:.grab-target; showLine:true; far:8"
+          sphere-collider="objects:.grab-target"
+          super-hands="colliderEvent: raycaster-intersection;
+                       colliderEventProperty: els;
+                       grabStartButtons: triggerdown, gripdown;
+                       grabEndButtons: triggerup, gripup"
+          spawner="camera:#cam">
+</a-entity>
+
     </a-entity>
 
     <a-sky color="#1b2026"></a-sky>
