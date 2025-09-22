@@ -120,6 +120,84 @@ AFRAME.registerComponent('hover-highlight', {
 });
 
 
+AFRAME.registerComponent('vr-grab-attach', {
+  schema:{ holdOffset:{type:'vec3', default:{x:0,y:0,z:-0.15}} }, // léger offset devant la main
+  init(){
+    this._held = null;
+    this._lastPos = new THREE.Vector3();
+    this._tmp = new THREE.Vector3();
+
+    this._onGrabStart = (e)=>{
+      const hand = e.detail && e.detail.hand;
+      if (!hand || this._held) return;
+
+      // mémos
+      const hadBody = this.el.hasAttribute('dynamic-body');
+      if (hadBody) this.el.removeAttribute('dynamic-body');
+
+      // parentage à la main en conservant une pose propre
+      hand.object3D.updateMatrixWorld();
+      this.el.sceneEl.object3D.updateMatrixWorld();
+
+      // place l’objet comme enfant de la main
+      hand.appendChild(this.el);
+
+      // petit offset devant la main (évite de clipper la main)
+      const o = this.data.holdOffset;
+      this.el.object3D.position.set(o.x, o.y, o.z);
+      this.el.object3D.rotation.set(0,0,0); // optionnel : aligne l’objet avec la main
+
+      // init suivi vitesse
+      const wp = hand.object3D.localToWorld(new THREE.Vector3(o.x,o.y,o.z));
+      this._lastPos.copy(wp);
+
+      this._held = { hand, hadBody };
+    };
+
+    this._onGrabEnd = ()=>{
+      if (!this._held) return;
+      const {hand, hadBody} = this._held;
+
+      // calcul d’une vitesse de lâcher (diff de positions monde)
+      const nowWorldPos = hand.object3D.localToWorld(this.el.object3D.position.clone());
+      const vel = nowWorldPos.clone().sub(this._lastPos).multiplyScalar(60); // ≈ m/s
+
+      // reparenter à la scène (garder la pose monde)
+      const worldPos = nowWorldPos.clone();
+      const worldQuat = this.el.object3D.getWorldQuaternion(new THREE.Quaternion());
+      this.el.sceneEl.appendChild(this.el);
+      this.el.object3D.position.copy(worldPos);
+      this.el.object3D.setRotationFromQuaternion(worldQuat);
+
+      // réactiver physique et pousser la vitesse
+      if (hadBody){
+        this.el.setAttribute('dynamic-body','mass:1');
+        this.el.addEventListener('body-loaded', function onBody(){
+          this.removeEventListener('body-loaded', onBody);
+          if (this.body) this.body.velocity.set(vel.x, vel.y, vel.z);
+        });
+      }
+
+      this._held = null;
+    };
+
+    this.el.addEventListener('grab-start', this._onGrabStart);
+    this.el.addEventListener('grab-end',   this._onGrabEnd);
+  },
+  tick(){
+    if (!this._held) return;
+    // met à jour la position monde suivie (pour la vitesse)
+    const o = this.data.holdOffset;
+    const wp = this._held.hand.object3D.localToWorld(new THREE.Vector3(o.x,o.y,o.z));
+    this._lastPos.copy(wp);
+  },
+  remove(){
+    this.el.removeEventListener('grab-start', this._onGrabStart);
+    this.el.removeEventListener('grab-end',   this._onGrabEnd);
+  }
+});
+
+
 
     // Spawner : bouton A (droite) ou touche N — (laisse comme précédemment)
     AFRAME.registerComponent('spawner', {
@@ -152,6 +230,7 @@ AFRAME.registerComponent('hover-highlight', {
         el.setAttribute('grabbable','');
         el.setAttribute('draggable','');
         el.setAttribute('dynamic-body','mass:1');
+        el.setAttribute('vr-grab-attach','');
         document.querySelector('a-scene').appendChild(el);
       }
     });
