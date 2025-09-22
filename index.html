@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TP WebVR – A-Frame 1.7.0 + super-hands 3.x</title>
+  <title>TP WebVR – A-Frame 1.7.0 + super-hands 3.x (lasers fix + trigger move)</title>
 
   <!-- A-Frame 1.7.0 -->
   <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
 
-  <!-- A-Frame 1.5+ : éviter le conflit de nom "grabbable" -->
+  <!-- Éviter conflit de nom "grabbable" (super-hands) -->
   <script> if (AFRAME.components && AFRAME.components["grabbable"]) { delete AFRAME.components["grabbable"]; } </script>
 
   <!-- aframe-extras (movement-controls, sphere-collider) -->
@@ -31,11 +31,12 @@
   </style>
 
   <script>
-    // Rotation du rig avec le joystick droit (axe X)
+    // Rotation du rig avec le joystick droit
     AFRAME.registerComponent('turn-with-right-joystick', {
-      schema: { rig: {type: 'selector'}, speed: {default: 140} }, // degrés/s à stick=1
+      schema: { rig: {type: 'selector'}, speed: {default: 140} }, // °/s à stick=1
       init() {
         this.x = 0; this.dead = 0.15;
+        // On écoute l'entité qui reçoit les events du contrôleur (la main parente)
         this.el.addEventListener('axismove', e => {
           if (e && e.detail && Array.isArray(e.detail.axis)) this.x = e.detail.axis[0] || 0;
         });
@@ -44,8 +45,29 @@
         const rig = this.data.rig; if (!rig) return;
         const stick = Math.abs(this.x) > this.dead ? this.x : 0; if (!stick) return;
         const rot = rig.getAttribute('rotation');
-        rot.y -= stick * this.data.speed * (dt/1000);   // signe pour feeling "FPS"
+        rot.y -= stick * this.data.speed * (dt/1000);
         rig.setAttribute('rotation', rot);
+      }
+    });
+
+    // Avancer quand on maintient la gâchette droite
+    AFRAME.registerComponent('trigger-move', {
+      schema: { rig: {type:'selector'}, camera: {type:'selector'}, speed: {default: 1.2} }, // m/s
+      init() {
+        this.moving = false;
+        this.dir = new THREE.Vector3();
+        this.el.addEventListener('triggerdown', () => { this.moving = true; });
+        this.el.addEventListener('triggerup',   () => { this.moving = false; });
+      },
+      tick(t, dt) {
+        if (!this.moving || !this.data.rig || !this.data.camera) return;
+        const rig = this.data.rig.object3D;
+        const cam = this.data.camera.object3D;
+        // direction "avant" de la caméra (XZ uniquement)
+        cam.getWorldDirection(this.dir);
+        this.dir.y = 0; this.dir.normalize();
+        const step = (this.data.speed * dt/1000);
+        rig.position.addScaledVector(this.dir, step);
       }
     });
 
@@ -58,7 +80,6 @@
         this._getMat = () => {
           const mesh = el.getObject3D('mesh');
           if (!mesh) return null;
-          // si multi-matériaux
           return Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
         };
         const mat = this._getMat();
@@ -72,9 +93,7 @@
       },
       setHover(state) {
         const el = this.el;
-        // scale
         el.object3D.scale.setScalar(state ? this.data.hoverScale : this._origScale.x);
-        // emissive
         const mat = this._getMat();
         if (mat) {
           if (state) {
@@ -98,7 +117,7 @@
       }
     });
 
-    // Petit point qui suit l’intersection du raycaster (debug)
+    // Pointeur qui suit l’intersection du rayon (debug)
     AFRAME.registerComponent('ray-hit-dot', {
       schema: { raycasterEl: {type: 'selector'} },
       init() {
@@ -106,14 +125,12 @@
         this.el.setAttribute('visible', 'false');
         const rc = this.data.raycasterEl;
         if (!rc) return;
-
         rc.addEventListener('raycaster-intersection', e => {
           if (!e.detail || !e.detail.intersections || !e.detail.intersections[0]) return;
           const p = e.detail.intersections[0].point;
           this.el.object3D.position.copy(p);
           if (!this.visible) { this.visible = true; this.el.setAttribute('visible', 'true'); }
         });
-
         rc.addEventListener('raycaster-intersection-cleared', () => {
           if (this.visible) { this.visible = false; this.el.setAttribute('visible', 'false'); }
         });
@@ -125,10 +142,9 @@
 <body>
   <div class="overlay">
     <strong>TP WebVR – Ex.1 & Ex.2</strong><br/>
-    🧭 Gauche : joystick = déplacement (laser court debug + collider pour grab proche)<br/>
-    ↪️ Droit : joystick = rotation (laser long pour viser/attraper à distance)<br/>
-    🤏 Gâchettes : saisir / relâcher<br/>
-    🧲 Point blanc = impact du rayon droit<br/>
+    🧭 Gauche : joystick = déplacement (laser court debug + grab proche)<br/>
+    ↪️ Droit : joystick = rotation • <strong>Gâchette droite = avancer</strong><br/>
+    🤏 Gâchettes : saisir / relâcher • 🔵 Point blanc = impact rayon droit<br/>
     🛠️ Inspector : <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd>
   </div>
 
@@ -136,7 +152,7 @@
     background="color: #20252b"
     renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true; sortTransparentObjects: true"
     shadow="type: pcfsoft"
-    physics="debug: false; gravity: -9.8"  <!-- laisse le driver par défaut (CANNON/Ammo) -->
+    physics="debug: false; gravity: -9.8"
     vr-mode-ui="enabled: true"
   >
     <!-- Lumières -->
@@ -149,7 +165,7 @@
              color="#3c424a" material="roughness:1; metalness:0"
              shadow="receive: true" static-body></a-plane>
 
-    <!-- Objets (dynamiques, saisissables, hoverables) -->
+    <!-- Objets dynamiques, saisissables, hoverables -->
     <a-box class="grabbable hoverable" hover-highlight
            position="-1 1.25 -3" width="1" height="1" depth="1"
            color="#ff6f61" material="roughness:.6; metalness:.1"
@@ -173,29 +189,36 @@
     <!-- Rig + Caméra + Mains -->
     <a-entity id="rig" position="0 1.6 3"
               movement-controls="fly:false; speed:0.12; constrainToNavMesh:false">
-      <a-entity camera look-controls wasd-controls="enabled:false"></a-entity>
+      <a-entity id="cam" camera look-controls wasd-controls="enabled:false"></a-entity>
 
-      <!-- Main gauche : grab prox (collider) + laser court debug -->
-      <a-entity id="leftHand"
-                hand-controls="hand: left; handModelStyle: lowPoly; color: #ccccff"
-                super-hands
-                sphere-collider="objects: .grabbable"
-                raycaster="objects: .grabbable; showLine: true; far: 2.2">
+      <!-- MAIN GAUCHE : main visible + laser court correct + grab proche -->
+      <a-entity id="leftHand" hand-controls="hand: left; handModelStyle: lowPoly; color: #ccccff">
+        <!-- rayon correctement orienté par laser-controls (modèle ray uniquement) -->
+        <a-entity id="leftPointer"
+                  laser-controls="hand: left; model: false"
+                  super-hands
+                  sphere-collider="objects: .grabbable"
+                  raycaster="objects: .grabbable; showLine: true; far: 2.2">
+        </a-entity>
       </a-entity>
 
-      <!-- Main droite : raycast + grab distance + rotation du rig -->
+      <!-- MAIN DROITE : main visible + laser long + rotation joystick + avance gâchette -->
       <a-entity id="rightHand"
                 hand-controls="hand: right; handModelStyle: highPoly; color: #ffcccc"
-                super-hands
-                raycaster="objects: .grabbable; showLine: true; far: 8"
-                line="opacity: 0.95"
-                turn-with-right-joystick="rig: #rig; speed: 140">
+                turn-with-right-joystick="rig: #rig; speed: 140"
+                trigger-move="rig: #rig; camera: #cam; speed: 1.2">
+        <a-entity id="rightPointer"
+                  laser-controls="hand: right; model: false"
+                  super-hands
+                  raycaster="objects: .grabbable; showLine: true; far: 8"
+                  line="opacity: 0.95">
+        </a-entity>
       </a-entity>
     </a-entity>
 
-    <!-- Pointeur de contact (impact du rayon droit) -->
+    <!-- Pointeur d'impact (rayon droit) -->
     <a-sphere id="hitDot" radius="0.02" color="#ffffff" visible="false"
-              ray-hit-dot="raycasterEl: #rightHand"></a-sphere>
+              ray-hit-dot="raycasterEl: #rightPointer"></a-sphere>
 
     <a-sky color="#1b2026"></a-sky>
   </a-scene>
