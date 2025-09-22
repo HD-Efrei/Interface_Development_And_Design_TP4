@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>A-Frame 1.5 + Physics v4 + SuperHands v4 (grab OK)</title>
+
+  <!-- A-Frame 1.5.0 (Three r158) -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+
+  <!-- Physics system v4.2.3 (intègre cannon-es; NE PAS charger Cannon soi-même) -->
+  <script src="https://cdn.jsdelivr.net/npm/aframe-physics-system@4.2.3/dist/aframe-physics-system.min.js"></script>
+
+  <!-- A-Frame Extras (movement-controls, etc.) -->
+  <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@7.6.0/dist/aframe-extras.min.js"></script>
+
+  <!-- SuperHands v4 (compatible physics v4 + obb-collider) -->
+  <script src="https://cdn.jsdelivr.net/gh/akbartus/superhands-aframe@4.0.2/dist/super-hands.min.js"></script>
+
+  <style>
+    html,body{margin:0;height:100%}
+    .hud{position:fixed;left:12px;top:12px;padding:8px 12px;background:#0008;color:#fff;border-radius:8px;font:13px system-ui;z-index:9}
+  </style>
+
+  <script>
+    // Debug rapide
+    window.addEventListener('DOMContentLoaded', ()=>{
+      console.log('[SCRIPTS]', [...document.scripts].map(s=>s.src||'(inline)'));
+      console.log('[CHECK]', {
+        AFRAME: !!window.AFRAME,
+        physicsSystem: !!AFRAME.systems['physics'],
+        obbCollider: !!AFRAME.components['obb-collider'],
+        superHands: !!AFRAME.components['super-hands']
+      });
+    });
+    window.addEventListener('load', ()=>{
+      const scene = document.querySelector('a-scene');
+      scene?.addEventListener('loaded', ()=>{
+        const sys = scene.systems?.physics;
+        console.log('[physics system data]', sys?.data);
+      });
+    });
+
+    // Logs d’événements pour vérifier le flux grab
+    AFRAME.registerComponent('debug-hand', {
+      schema:{hand:{default:'left'}},
+      init(){
+        const h=this.data.hand;
+        const log=e=>console.log(`[${h}]`, e.type, e.detail||'');
+        ['hover-start','hover-end','grab-start','grab-end','gripdown','gripup','triggerdown','triggerup','axismove']
+          .forEach(ev=>this.el.addEventListener(ev,log));
+      }
+    });
+
+    // Fallback clavier pour tester : E = grip (main droite)
+    AFRAME.registerComponent('grab-key', {
+      schema:{key:{default:'KeyE'}},
+      init(){
+        let down=false; const el=this.el, k=this.data.key;
+        const kd=e=>{ if(e.code!==k||down) return; down=true; el.emit('gripdown'); };
+        const ku=e=>{ if(e.code!==k||!down) return; down=false; el.emit('gripup'); };
+        window.addEventListener('keydown', kd);
+        window.addEventListener('keyup', ku);
+        this.el.addEventListener('remove',()=>{
+          window.removeEventListener('keydown',kd);
+          window.removeEventListener('keyup',ku);
+        });
+      }
+    });
+  </script>
+</head>
+<body>
+  <div class="hud">
+    Joystick gauche : déplacement · Joystick droit : rotation ·
+    Grip/Trigger pour saisir · Fallback: <b>E</b> (main droite)
+  </div>
+
+  <!-- Laisser le physics system auto-configurer le driver (cannon-es). PAS de "driver: ..." -->
+  <a-scene physics="gravity: -9.8; debug: false" renderer="antialias:true">
+    <!-- Lumières (ombres optionnelles) -->
+    <a-entity light="type: ambient; intensity: 0.35"></a-entity>
+    <a-entity light="type: directional; intensity: 0.8" position="1 3 2"></a-entity>
+
+    <!-- Sol -->
+    <a-plane rotation="-90 0 0" width="30" height="30" color="#7da07d" static-body></a-plane>
+
+    <!-- Objets dynamiques grabbables -->
+    <a-box class="grabbable hoverable" position="-0.6 1.2 -1.6" depth="0.6" height="0.6" width="0.6"
+           color="#c94f4f" dynamic-body></a-box>
+
+    <a-sphere class="grabbable hoverable" position="0.7 1.3 -1.8" radius="0.45"
+              color="#4f79c9" dynamic-body></a-sphere>
+
+    <!-- Rig + caméra + mains -->
+    <a-entity id="rig" position="0 0 2.5"
+              movement-controls="speed:0.22; fly:false"
+              look-controls="pointerLockEnabled:true">
+      <a-entity camera position="0 1.6 0"></a-entity>
+
+      <!-- Avec physics v4 => utiliser obb-collider (pas sphere-collider) -->
+      <a-entity id="left"
+                laser-controls="hand: left"
+                obb-collider="objects: .grabbable"
+                super-hands="colliderEvent: hitstart; colliderLeaveEvent: hitend;
+                             colliderEventProperty: targetEl;
+                             grabStartButtons: gripdown, triggerdown;
+                             grabEndButtons: gripup, triggerup"
+                debug-hand="hand: left"></a-entity>
+
+      <a-entity id="right"
+                laser-controls="hand: right"
+                obb-collider="objects: .grabbable"
+                super-hands="colliderEvent: hitstart; colliderLeaveEvent: hitend;
+                             colliderEventProperty: targetEl;
+                             grabStartButtons: gripdown, triggerdown;
+                             grabEndButtons: gripup, triggerup"
+                debug-hand="hand: right"
+                grab-key></a-entity>
+    </a-entity>
+
+    <a-sky color="#ECECEC"></a-sky>
+  </a-scene>
+</body>
+</html>

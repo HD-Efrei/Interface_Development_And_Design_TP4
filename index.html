@@ -2,157 +2,200 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <title>SceneVR – Exercice 2 (Grab)</title>
+  <title>VR – Grab + Physique (Cannon local)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
 
-  <!-- Locomotion (stick gauche + WASD desktop) -->
+  <!-- Déplacements + sphere-collider -->
   <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@7.6.0/dist/aframe-extras.controls.min.js"></script>
 
-  <!-- Physique (cannon driver) -->
-  <script src="https://cdn.jsdelivr.net/npm/aframe-physics-system@4.0.1/dist/aframe-physics-system.min.js"></script>
-
-  <!-- Super Hands (grab/release + interactions proches) -->
-  <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-super-hands-component@5.0.2/dist/aframe-super-hands.min.js"></script>
+  <!-- ⚠️ LOCAL & DANS CET ORDRE (cache-bust avec ?v=2) -->
+  <script src="./vendor/cannon.min.js?v=2"></script>
+  <script src="./vendor/aframe-physics-system.min.js?v=2"></script>
+  <script src="./vendor/super-hands.min.js?v=2"></script>
 
   <script>
-  // Rotation FLUIDE au stick droit (yaw)
-  AFRAME.registerComponent('smooth-turn', {
-    schema:{ speed:{default:140}, deadzone:{default:0.08} }, // degrés/s
-    init(){
-      this.x = 0;
-      this.el.addEventListener('thumbstickmoved', e => { this.x = e?.detail?.x ?? 0; });
-    },
-    tick(t,dt){
-      const rig = document.querySelector('#rig'); if(!rig) return;
-      const x = this.x; if (Math.abs(x) < this.data.deadzone) return;
-      const rot = rig.getAttribute('rotation') || {x:0,y:0,z:0};
-      rot.y -= x * this.data.speed * (dt/1000); // mets + si tu préfères l'autre sens
-      rig.setAttribute('rotation', rot);
-    }
-  });
+    // Sanity check immédiat après chargement des librairies
+    (function () {
+      console.log('[CHECK] CANNON       :', !!window.CANNON);
+      console.log('[CHECK] physics      :', !!AFRAME.systems['physics']);
+      console.log('[CHECK] super-hands  :', !!AFRAME.components['super-hands']);
+      if (!window.CANNON) console.error('Cannon introuvable. Vérifie ./vendor/cannon.min.js');
+    })();
 
-  // Accroupi logiciel (descend/monte le rig pour atteindre les objets)
-  AFRAME.registerComponent('crouch-controls', {
-    schema: {
-      amount:   {default: 0.6},
-      mode:     {default: 'hold'}, // 'hold' ou 'toggle'
-      key:      {default: 'KeyC'},
-      button:   {default: 'thumbstick'} // clic du stick
-    },
-    init(){
-      const rig = this.el;
-      this.baseY  = rig.object3D.position.y;
-      this.target = this.baseY;
-      this.state  = false;
+    // Surbrillance quand on survole (raycaster/sphere-collider)
+    AFRAME.registerComponent('hover-highlight', {
+      schema:{ color:{default:'#FFFFFF'}, emissive:{default:'#FFFFFF'}, intensity:{default:0.6} },
+      init(){
+        const el=this.el;
+        const mat=el.getAttribute('material')||{};
+        this._orig={ color:mat.color||'#FFFFFF', emissive:mat.emissive||'#000', emissiveIntensity:mat.emissiveIntensity||0 };
+        const on = ()=> el.setAttribute('material',{ color:this.data.color, emissive:this.data.emissive, emissiveIntensity:this.data.intensity });
+        const off= ()=> el.setAttribute('material', this._orig);
+        el.addEventListener('hover-start', on);
+        el.addEventListener('hover-end', off);
+        el.addEventListener('raycaster-intersected', on);
+        el.addEventListener('raycaster-intersected-cleared', off);
+      }
+    });
 
-      window.addEventListener('keydown', (e)=>{
-        if (e.code !== this.data.key) return;
-        this.state = (this.data.mode==='toggle') ? !this.state : true;
-        this._updateTarget();
-      });
-      window.addEventListener('keyup', (e)=>{
-        if (e.code !== this.data.key) return;
-        if (this.data.mode==='hold'){ this.state=false; this._updateTarget(); }
-      });
+    // Smooth turn au stick droit (optionnel)
+    AFRAME.registerComponent('smooth-turn', {
+      schema:{ speed:{default:140}, deadzone:{default:0.08} },
+      init(){ this.x=0; this.el.addEventListener('thumbstickmoved', e=>{ this.x = e?.detail?.x ?? 0; }); },
+      tick(t,dt){
+        const rig=document.getElementById('rig'); if(!rig) return;
+        const x=this.x; if(Math.abs(x)<this.data.deadzone) return;
+        const rot=rig.getAttribute('rotation')||{x:0,y:0,z:0};
+        rot.y -= x * this.data.speed * (dt/1000);
+        rig.setAttribute('rotation', rot);
+      }
+    });
 
-      const bindBtn = (el, name) => {
-        if (!el) return;
-        const down = ()=>{ this.state = (this.data.mode==='toggle') ? !this.state : true;  this._updateTarget(); };
-        const up   = ()=>{ if (this.data.mode==='hold'){ this.state=false; this._updateTarget(); } };
-        el.addEventListener(name+'down', down);
-        el.addEventListener(name+'up',   up);
-        if (name==='thumbstick'){ el.addEventListener('thumbstickdown', down); el.addEventListener('thumbstickup', up); }
-      };
-      bindBtn(document.getElementById('left'),  this.data.button);
-      bindBtn(document.getElementById('right'), this.data.button);
-    },
-    _updateTarget(){ this.target = this.state ? (this.baseY - this.data.amount) : this.baseY; },
-    tick(t,dt){
-      const pos = this.el.object3D.position;
-      pos.y += (this.target - pos.y) * Math.min(1, (dt/1000)*10);
-    }
-  });
+    /* HUD d'état global */
+    window.addEventListener('DOMContentLoaded', () => {
+      const box = document.createElement('div');
+      box.id = 'hudDebug';
+      box.style.cssText = 'position:fixed;left:12px;bottom:12px;padding:8px 12px;background:#000b;color:#fff;font:12px system-ui;border-radius:8px;z-index:99999;line-height:1.35';
+      box.innerHTML = `
+        <div><b>CANNON</b>: <span id="dbgCannon">?</span> · <b>physics</b>: <span id="dbgPhys">?</span> · <b>super-hands</b>: <span id="dbgSH">?</span></div>
+        <div>Left: <span id="dbgL">idle</span> · Right: <span id="dbgR">idle</span></div>
+        <div style="opacity:.8">Fallback: <b>E</b>=grip (main droite)</div>`;
+      document.body.appendChild(box);
+
+      setTimeout(()=>{
+        document.getElementById('dbgCannon').textContent = !!window.CANNON;
+        document.getElementById('dbgPhys').textContent   = !!AFRAME.systems['physics'];
+        document.getElementById('dbgSH').textContent      = !!AFRAME.components['super-hands'];
+      }, 200);
+    });
+
+    /* Visu + logs des événements super-hands / boutons */
+    AFRAME.registerComponent('debug-superhands', {
+      schema: { hand: {default:'left'} }, // 'left' | 'right'
+      init(){
+        const hand = this.data.hand;
+        const label = hand==='left' ? document.getElementById('dbgL') : document.getElementById('dbgR');
+        const el = this.el;
+
+        const setState = (txt,color) => {
+          if (label) { label.textContent = txt; label.style.color = color||'#fff'; }
+        };
+        const tint = (hex)=>{ el.setAttribute('material', 'color', hex); };
+
+        el.addEventListener('hover-start', (e)=>{ console.log(`[${hand}] hover-start`, e.detail); setState('hover','khaki'); });
+        el.addEventListener('hover-end',   (e)=>{ console.log(`[${hand}] hover-end`,   e.detail); setState('idle','#ddd'); });
+
+        el.addEventListener('grab-start', (e)=>{ console.log(`[${hand}] grab-start`, e.detail); setState('GRAB','lime'); tint('#A3E635'); });
+        el.addEventListener('grab-end',   (e)=>{ console.log(`[${hand}] grab-end`,   e.detail); setState('idle','#ddd'); tint('#FFFFFF'); });
+
+        ['gripdown','gripup','triggerdown','triggerup','thumbstickdown','thumbstickup']
+          .forEach(ev => el.addEventListener(ev, ()=>console.log(`[${hand}] ${ev}`)));
+      }
+    });
+
+    /* Fallback clavier : E = grip (sur la main droite) */
+    AFRAME.registerComponent('grab-key', {
+      schema:{ key:{default:'KeyE'} },
+      init(){
+        const el = this.el;
+        let pressed=false;
+        const onDown = (e)=>{ if(e.code!==this.data.key || pressed) return; pressed = true;  el.emit('gripdown'); };
+        const onUp   = (e)=>{ if(e.code!==this.data.key || !pressed) return; pressed = false; el.emit('gripup');   };
+        window.addEventListener('keydown', onDown);
+        window.addEventListener('keyup',   onUp);
+        this.remove = ()=>{ window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
+      }
+    });
   </script>
 
   <style>
     html,body{margin:0;height:100%}
     a-scene{position:fixed;inset:0}
-    .hud{position:fixed;left:12px;top:12px;padding:8px 12px;background:#0008;color:#fff;border-radius:8px;font-family:system-ui}
+    .hud{position:fixed;left:12px;top:12px;padding:8px 12px;background:#0008;color:#fff;border-radius:8px;font-family:system-ui;z-index:9998}
   </style>
 </head>
+
 <body>
   <div class="hud">
-    🎮 Gauche = se déplacer (stick/WASD) · Droite = tourner (smooth) ·
-    Accroupi = <b>C</b> / <b>clic stick</b> · <b>Grip</b> = saisir/relâcher
+    Stick <b>gauche</b> = se déplacer · Stick <b>droit</b> = tourner ·
+    <b>Grip</b> ou <b>Trigger</b> = saisir/relâcher · Survol = <b>blanc</b>
   </div>
 
   <a-scene
-    renderer="antialias:true; colorManagement:true; logarithmicDepthBuffer:true; sortTransparentObjects:true"
-    shadow="type: pcfsoft"
-    physics="driver: cannon; gravity: -9.8; debug: false">
+    renderer="antialias:true; colorManagement:true; sortTransparentObjects:true"
+    physics="driver: cannon; gravity: -9.8; debug: false"
+    shadow="type: pcfsoft">
 
     <!-- Sol (statique) -->
-    <a-entity id="ground"
-              geometry="primitive:plane; width:40; height:40"
+    <a-entity geometry="primitive: plane; width: 40; height: 40"
               rotation="-90 0 0"
               material="color:#7da07d; roughness:1; metalness:0"
               shadow="receive:true"
               static-body></a-entity>
 
-    <!-- Objets GRABBABLES (dynamiques) -->
-    <a-box class="grabbable"
-           position="-1 0.5 -3" depth="1" height="1" width="1"
+    <!-- Objets grabbables (dynamiques), à hauteur contrôleur -->
+    <a-box class="grabbable" grabbable hoverable hover-highlight
+           position="-0.9 1.3 -2.2" depth="0.9" height="0.9" width="0.9"
            material="color:#c94f4f; roughness:0.8; metalness:0.2"
            shadow="cast:true; receive:true"
-           dynamic-body="mass: 1; shape: box"></a-box>
+           dynamic-body="shape: box; mass: 1"></a-box>
 
-    <a-sphere class="grabbable"
-              position="1 1 -2.5" radius="0.5"
+    <a-sphere class="grabbable" grabbable hoverable hover-highlight
+              position="0.9 1.4 -2.6" radius="0.65"
               material="color:#4f79c9; roughness:0.6; metalness:0.2"
               shadow="cast:true; receive:true"
-              dynamic-body="mass: 0.5; shape: sphere"></a-sphere>
+              dynamic-body="shape: sphere; mass: 0.6"></a-sphere>
 
     <!-- Lumières -->
-    <a-entity light="type:ambient; intensity:0.35; color:#fff"></a-entity>
-    <a-entity id="sun"
-              light="type:directional; intensity:1; castShadow:true; shadowBias:-0.0003"
+    <a-entity light="type: ambient; intensity:0.35; color:#fff"></a-entity>
+    <a-entity light="type: directional; intensity:1; castShadow:true"
               position="5 8 3" rotation="-45 30 0"></a-entity>
 
-    <a-sky color="#ECECEC"></a-sky>
-
-    <!-- RIG + caméra + contrôleurs -->
-    <a-entity id="rig" position="0 0 5" rotation="0 0 0"
-              movement-controls="speed: 0.2; fly: false"
-              crouch-controls="amount:0.6; mode:hold; key:KeyC; button:thumbstick">
-
-      <!-- Caméra (VR: HMD, Desktop: souris) -->
+    <!-- Rig + caméra + contrôleurs -->
+    <a-entity id="rig" position="0 0 4" movement-controls="speed:0.22; fly:false">
       <a-entity id="head" camera position="0 1.6 0" look-controls="pointerLockEnabled:true"></a-entity>
 
-      <!-- Contrôleurs (génériques). Sur Quest réel: passe à meta-touch-controls -->
-      <!-- super-hands + sphere-collider = grab de proximité, grip = prise/relâche -->
+      <!-- Main gauche (avec halo visuel pour aider à viser/toucher) -->
       <a-entity id="left"
-                laser-controls="hand: left"
-                sphere-collider="objects: .grabbable"
-                super-hands="colliderEvent: collisions;
-                             grabStartButtons: gripdown; grabEndButtons: gripup">
+        laser-controls="hand: left"
+        raycaster="objects: .grabbable; far: 3; showLine: true"
+        sphere-collider="objects: .grabbable; radius: 0.20"
+        super-hands="colliderEvent: collisions; colliderEventProperty: els;
+                     grabStartButtons: gripdown, triggerdown;
+                     grabEndButtons: gripup, triggerup"
+        debug-superhands="hand: left">
+        <!-- petit halo pour visualiser la zone de prise -->
+        <a-entity geometry="primitive: sphere; radius: 0.06"
+                  material="color: #88ff88; opacity: 0.35; transparent: true"></a-entity>
       </a-entity>
 
+      <!-- Main droite + smooth turn + fallback clavier -->
       <a-entity id="right"
-                laser-controls="hand: right"
-                sphere-collider="objects: .grabbable"
-                super-hands="colliderEvent: collisions;
-                             grabStartButtons: gripdown; grabEndButtons: gripup"
-                smooth-turn="speed: 140; deadzone: 0.08">
+        laser-controls="hand: right"
+        raycaster="objects: .grabbable; far: 3; showLine: true"
+        sphere-collider="objects: .grabbable; radius: 0.20"
+        super-hands="colliderEvent: collisions; colliderEventProperty: els;
+                     grabStartButtons: gripdown, triggerdown;
+                     grabEndButtons: gripup, triggerup"
+        smooth-turn="speed: 140; deadzone: 0.08"
+        debug-superhands="hand: right"
+        grab-key="">
+        <a-entity geometry="primitive: sphere; radius: 0.06"
+                  material="color: #88ff88; opacity: 0.35; transparent: true"></a-entity>
       </a-entity>
-
     </a-entity>
 
-    <!-- WebXR -->
-    <a-entity webxr="optionalFeatures: local-floor, bounded-floor"></a-entity>
+    <a-sky color="#ECECEC"></a-sky>
+    <a-entity webxr="optionalFeatures: local-floor"></a-entity>
 
+    <script>
+      document.querySelector('a-scene').addEventListener('loaded', ()=>{
+        console.log('Scene loaded. Physics?', !!AFRAME.systems['physics']);
+      });
+    </script>
   </a-scene>
 </body>
 </html>
