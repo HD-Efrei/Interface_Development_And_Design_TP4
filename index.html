@@ -82,34 +82,41 @@
     });
 
     // Surbrillance (scale + émissif) via super-hands
-    AFRAME.registerComponent('hover-highlight', {
-      schema:{scale:{default:1.06}, emissive:{default:'#ffffff'}, intensity:{default:0.45}},
-      init(){
-        const el=this.el;
-        this.s0=el.object3D.scale.clone();
-        const getMat=()=>{const m=el.getObject3D('mesh'); return m? (Array.isArray(m.material)?m.material[0]:m.material):null;};
-        this.mat=getMat();
-        this.e0=(this.mat&&this.mat.emissive)? this.mat.emissive.clone():null;
-        this.i0=(this.mat&&'emissiveIntensity'in this.mat)? this.mat.emissiveIntensity:0;
-        el.addEventListener('hover-start', ()=>this.set(true));
-        el.addEventListener('hover-end',   ()=>this.set(false));
-        el.addEventListener('grab-start',  ()=>this.set(true));
-        el.addEventListener('grab-end',    ()=>this.set(false));
-      },
-      set(on){
-        const el=this.el; el.object3D.scale.setScalar(on? this.data.scale : this.s0.x);
-        if(this.mat){
-          if(on){
-            (this.mat.emissive||(this.mat.emissive=new THREE.Color(this.data.emissive))).set(this.data.emissive);
-            this.mat.emissiveIntensity=this.data.intensity;
-          }else{
-            if(this.e0) this.mat.emissive.copy(this.e0);
-            this.mat.emissiveIntensity=this.i0;
-          }
-          this.mat.needsUpdate=true;
-        }
+AFRAME.registerComponent('hover-highlight', {
+  schema:{scale:{default:1.06}, emissive:{default:'#ffffff'}, intensity:{default:0.45}},
+  init(){
+    const el=this.el;
+    this.s0=el.object3D.scale.clone();
+    const getMat=()=>{const m=el.getObject3D('mesh'); return m? (Array.isArray(m.material)?m.material[0]:m.material):null;};
+    this.mat=getMat();
+    this.e0=(this.mat&&this.mat.emissive)? this.mat.emissive.clone():null;
+    this.i0=(this.mat&&'emissiveIntensity'in this.mat)? this.mat.emissiveIntensity:0;
+
+    // super-hands (proche et rayon via colliderEvent)
+    el.addEventListener('hover-start', ()=>this.set(true));
+    el.addEventListener('hover-end',   ()=>this.set(false));
+    el.addEventListener('grab-start',  ()=>this.set(true));
+    el.addEventListener('grab-end',    ()=>this.set(false));
+
+    // fallback direct: événements du raycaster
+    el.addEventListener('raycaster-intersected', ()=>this.set(true));
+    el.addEventListener('raycaster-intersected-cleared', ()=>this.set(false));
+  },
+  set(on){
+    const el=this.el; el.object3D.scale.setScalar(on? this.data.scale : this.s0.x);
+    if(this.mat){
+      if(on){
+        (this.mat.emissive||(this.mat.emissive=new THREE.Color(this.data.emissive))).set(this.data.emissive);
+        this.mat.emissiveIntensity=this.data.intensity;
+      }else{
+        if(this.e0) this.mat.emissive.copy(this.e0);
+        this.mat.emissiveIntensity=this.i0;
       }
-    });
+      this.mat.needsUpdate=true;
+    }
+  }
+});
+
 
     // Spawner : bouton A (droite) ou touche N — (laisse comme précédemment)
     AFRAME.registerComponent('spawner', {
@@ -176,32 +183,35 @@
       <a-entity id="cam" camera look-controls wasd-controls="enabled:false"></a-entity>
 
       <!-- MAIN GAUCHE : locomotion -->
-      <!-- MAIN GAUCHE : déplacement (left-stick-move) + grab proche (sphere-collider) + grab à distance (raycaster) -->
+<!-- GAUCHE -->
 <a-entity id="leftCtl"
-          oculus-touch-controls="hand: left"
-          left-stick-move="rig:#rig; speed:2.2; dead:0.18"
-          laser-controls="hand: left"
-          raycaster="objects:.grab-target; showLine:true; far:8"
-          sphere-collider="objects:.grab-target"
-          super-hands="colliderEvent: raycaster-intersection;
-                       colliderEventProperty: els;
-                       grabStartButtons: triggerdown, gripdown;
-                       grabEndButtons: triggerup, gripup">
+  oculus-touch-controls="hand: left"
+  left-stick-move="rig:#rig; speed:2.2; dead:0.18"
+  laser-controls="hand: left"
+  raycaster="objects:.grab-target; showLine:true; far:8; interval:0"
+  sphere-collider="objects:.grab-target"
+  super-hands="colliderEvent: raycaster-intersection;
+               colliderEndEvent: raycaster-intersection-cleared;
+               colliderEventProperty: els;
+               grabStartButtons: triggerdown, gripdown;
+               grabEndButtons: triggerup, gripup">
 </a-entity>
 
-<!-- MAIN DROITE : rotation lisse (right-stick-smoothturn) + grab proche + grab à distance + spawn -->
+<!-- DROITE -->
 <a-entity id="rightCtl"
-          oculus-touch-controls="hand: right"
-          right-stick-smoothturn="rig:#rig; speedDeg:140; dead:0.18"
-          laser-controls="hand: right"
-          raycaster="objects:.grab-target; showLine:true; far:8"
-          sphere-collider="objects:.grab-target"
-          super-hands="colliderEvent: raycaster-intersection;
-                       colliderEventProperty: els;
-                       grabStartButtons: triggerdown, gripdown;
-                       grabEndButtons: triggerup, gripup"
-          spawner="camera:#cam">
+  oculus-touch-controls="hand: right"
+  right-stick-smoothturn="rig:#rig; speedDeg:140; dead:0.18"
+  laser-controls="hand: right"
+  raycaster="objects:.grab-target; showLine:true; far:8; interval:0"
+  sphere-collider="objects:.grab-target"
+  super-hands="colliderEvent: raycaster-intersection;
+               colliderEndEvent: raycaster-intersection-cleared;
+               colliderEventProperty: els;
+               grabStartButtons: triggerdown, gripdown;
+               grabEndButtons: triggerup, gripup"
+  spawner="camera:#cam">
 </a-entity>
+
 
     </a-entity>
 
