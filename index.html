@@ -11,13 +11,10 @@
   <!-- éviter le conflit de nom "grabbable" avec super-hands -->
   <script> if (AFRAME.components && AFRAME.components.grabbable) { delete AFRAME.components.grabbable; } </script>
 
-  <!-- aframe-extras (sphere-collider) -->
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.5.2/dist/aframe-extras.min.js"></script>
 
-  <!-- Physics system -->
   <script src="https://cdn.jsdelivr.net/npm/@c-frame/aframe-physics-system@4.1.0/dist/aframe-physics-system.min.js"></script>
 
-  <!-- super-hands 3.x -->
   <script src="https://unpkg.com/super-hands@3.0.5/dist/super-hands.min.js"></script>
 
   <style>
@@ -27,7 +24,6 @@
   </style>
 
   <script>
-    // Déplacement au stick GAUCHE (corrigé : avant = pousser le stick vers l'avant)
     AFRAME.registerComponent('left-stick-move', {
       schema:{rig:{type:'selector'}, speed:{default:2.2}, dead:{default:0.18}},
       init(){
@@ -52,7 +48,7 @@
         const yaw = THREE.MathUtils.degToRad(rigEl.getAttribute('rotation').y);
         const cos=Math.cos(yaw), sin=Math.sin(yaw);
         // >>> inversion fixée : "forward" suit la valeur du stick (avant ~ -1 -> on garde le signe natif)
-        const forward=this.vy * -1;   // pousser vers l'avant (y ≈ -1) -> +1 en "forward"
+        const forward=this.vy;   // pousser vers l'avant (y ≈ -1) -> +1 en "forward"
         const strafe = this.vx;
         const step=this.data.speed*(dt/1000);
         const dx = (strafe*cos + forward*sin)*step;
@@ -62,7 +58,6 @@
       remove(){ this.el.removeEventListener('thumbstickmoved', this.onThumb); }
     });
 
-    // Rotation lisse au stick DROIT (analogique)
     AFRAME.registerComponent('right-stick-smoothturn', {
       schema:{rig:{type:'selector'}, speedDeg:{default:140}, dead:{default:0.18}},
       init(){
