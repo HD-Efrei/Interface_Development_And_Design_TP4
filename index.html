@@ -3,19 +3,22 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TP WebVR – SceneVR + Grabbing + Debug Hover</title>
+  <title>TP WebVR – A-Frame 1.7.0 + super-hands 3.x</title>
 
-  <!-- A-Frame (>=1.4 pour Quest 2/3) -->
-  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <!-- A-Frame 1.7.0 -->
+  <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
 
-  <!-- A-Frame Extras (movement-controls, navmesh, etc.) -->
-  <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.5.0/dist/aframe-extras.min.js"></script>
+  <!-- A-Frame 1.5+ : éviter le conflit de nom "grabbable" -->
+  <script> if (AFRAME.components && AFRAME.components["grabbable"]) { delete AFRAME.components["grabbable"]; } </script>
 
-  <!-- Physics system (CANNON-ES compatible A-Frame 1.5) -->
-  <script src="https://cdn.jsdelivr.net/npm/aframe-physics-system@6.1.0/dist/aframe-physics-system.min.js"></script>
+  <!-- aframe-extras (movement-controls, sphere-collider) -->
+  <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.5.2/dist/aframe-extras.min.js"></script>
 
-  <!-- super-hands (grabbable/draggable/stretchable) -->
-  <script src="https://unpkg.com/super-hands@4.0.3/dist/super-hands.min.js"></script>
+  <!-- Physics system (CANNON/Ammo support) -->
+  <script src="https://cdn.jsdelivr.net/npm/@c-frame/aframe-physics-system@4.1.0/dist/aframe-physics-system.min.js"></script>
+
+  <!-- super-hands 3.x -->
+  <script src="https://unpkg.com/super-hands@3.0.5/dist/super-hands.min.js"></script>
 
   <style>
     body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
@@ -30,7 +33,7 @@
   <script>
     // Rotation du rig avec le joystick droit (axe X)
     AFRAME.registerComponent('turn-with-right-joystick', {
-      schema: { rig: {type: 'selector'}, speed: {default: 120} }, // degrés/s à stick=1
+      schema: { rig: {type: 'selector'}, speed: {default: 140} }, // degrés/s à stick=1
       init() {
         this.x = 0; this.dead = 0.15;
         this.el.addEventListener('axismove', e => {
@@ -40,62 +43,64 @@
       tick(t, dt) {
         const rig = this.data.rig; if (!rig) return;
         const stick = Math.abs(this.x) > this.dead ? this.x : 0; if (!stick) return;
-        const rot = rig.getAttribute('rotation'); rot.y -= stick * this.data.speed * (dt/1000);
+        const rot = rig.getAttribute('rotation');
+        rot.y -= stick * this.data.speed * (dt/1000);   // signe pour feeling "FPS"
         rig.setAttribute('rotation', rot);
       }
     });
 
-    // Effet de survol / saisie sur les cibles (.hoverable)
+    // Highlight des cibles au survol / grab
     AFRAME.registerComponent('hover-highlight', {
-      schema: {
-        hoverScale: {default: 1.06},
-        hoverEmissive: {default: '#ffffff'},
-        hoverIntensity: {default: 0.4}
-      },
+      schema: { hoverScale: {default: 1.06}, hoverEmissive: {default: '#ffffff'}, hoverIntensity: {default: 0.45} },
       init() {
         const el = this.el;
         this._origScale = el.object3D.scale.clone();
-        const mat = el.getObject3D('mesh') && el.getObject3D('mesh').material;
+        this._getMat = () => {
+          const mesh = el.getObject3D('mesh');
+          if (!mesh) return null;
+          // si multi-matériaux
+          return Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+        };
+        const mat = this._getMat();
         this._origEmissive = (mat && mat.emissive) ? mat.emissive.clone() : null;
         this._origEmissiveIntensity = (mat && 'emissiveIntensity' in mat) ? mat.emissiveIntensity : 0;
 
-        el.addEventListener('hover-start', this.onHoverStart = () => this.setHover(true));
-        el.addEventListener('hover-end',   this.onHoverEnd   = () => this.setHover(false));
-        el.addEventListener('grab-start',  this.onGrabStart  = () => this.setHover(true));
-        el.addEventListener('grab-end',    this.onGrabEnd    = () => this.setHover(false));
+        el.addEventListener('hover-start',  this._hs = () => this.setHover(true));
+        el.addEventListener('hover-end',    this._he = () => this.setHover(false));
+        el.addEventListener('grab-start',   this._gs = () => this.setHover(true));
+        el.addEventListener('grab-end',     this._ge = () => this.setHover(false));
       },
       setHover(state) {
         const el = this.el;
         // scale
         el.object3D.scale.setScalar(state ? this.data.hoverScale : this._origScale.x);
         // emissive
-        const mesh = el.getObject3D('mesh');
-        if (mesh && mesh.material) {
-          const m = mesh.material;
+        const mat = this._getMat();
+        if (mat) {
           if (state) {
-            if (!m.emissive) m.emissive = new THREE.Color(this.data.hoverEmissive);
-            else m.emissive.set(this.data.hoverEmissive);
-            m.emissiveIntensity = this.data.hoverIntensity;
-            m.needsUpdate = true;
+            if (!mat.emissive) mat.emissive = new THREE.Color(this.data.hoverEmissive);
+            else mat.emissive.set(this.data.hoverEmissive);
+            mat.emissiveIntensity = this.data.hoverIntensity;
+            mat.needsUpdate = true;
           } else {
-            if (this._origEmissive) m.emissive.copy(this._origEmissive);
-            m.emissiveIntensity = this._origEmissiveIntensity;
-            m.needsUpdate = true;
+            if (this._origEmissive) mat.emissive.copy(this._origEmissive);
+            mat.emissiveIntensity = this._origEmissiveIntensity;
+            mat.needsUpdate = true;
           }
         }
       },
       remove() {
         const el = this.el;
-        el.removeEventListener('hover-start', this.onHoverStart);
-        el.removeEventListener('hover-end', this.onHoverEnd);
-        el.removeEventListener('grab-start', this.onGrabStart);
-        el.removeEventListener('grab-end', this.onGrabEnd);
+        el.removeEventListener('hover-start', this._hs);
+        el.removeEventListener('hover-end', this._he);
+        el.removeEventListener('grab-start', this._gs);
+        el.removeEventListener('grab-end', this._ge);
       }
     });
 
-    // Petit point qui se place sur le point d'impact du raycaster (debug visuel)
+    // Petit point qui suit l’intersection du raycaster (debug)
     AFRAME.registerComponent('ray-hit-dot', {
-      schema: {raycasterEl: {type: 'selector'}},
+      schema: { raycasterEl: {type: 'selector'} },
       init() {
         this.visible = false;
         this.el.setAttribute('visible', 'false');
@@ -123,7 +128,7 @@
     🧭 Gauche : joystick = déplacement (laser court debug + collider pour grab proche)<br/>
     ↪️ Droit : joystick = rotation (laser long pour viser/attraper à distance)<br/>
     🤏 Gâchettes : saisir / relâcher<br/>
-    🧲 Pointeur apparaît au point d’impact du rayon<br/>
+    🧲 Point blanc = impact du rayon droit<br/>
     🛠️ Inspector : <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd>
   </div>
 
@@ -131,7 +136,7 @@
     background="color: #20252b"
     renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true; sortTransparentObjects: true"
     shadow="type: pcfsoft"
-    physics="driver: cannon-es; gravity: -9.8"
+    physics="debug: false; gravity: -9.8"  <!-- laisse le driver par défaut (CANNON/Ammo) -->
     vr-mode-ui="enabled: true"
   >
     <!-- Lumières -->
@@ -176,7 +181,6 @@
                 super-hands
                 sphere-collider="objects: .grabbable"
                 raycaster="objects: .grabbable; showLine: true; far: 2.2">
-        <!-- Trait visible (optionnel : le raycaster avec showLine l’affiche déjà) -->
       </a-entity>
 
       <!-- Main droite : raycast + grab distance + rotation du rig -->
@@ -189,7 +193,7 @@
       </a-entity>
     </a-entity>
 
-    <!-- Pointeur de contact (suiveur du 1er rayon : main droite) -->
+    <!-- Pointeur de contact (impact du rayon droit) -->
     <a-sphere id="hitDot" radius="0.02" color="#ffffff" visible="false"
               ray-hit-dot="raycasterEl: #rightHand"></a-sphere>
 
