@@ -87,23 +87,25 @@ AFRAME.registerComponent('hover-highlight', {
   init(){
     const el=this.el;
     this.s0=el.object3D.scale.clone();
+
     const getMat=()=>{const m=el.getObject3D('mesh'); return m? (Array.isArray(m.material)?m.material[0]:m.material):null;};
     this.mat=getMat();
     this.e0=(this.mat&&this.mat.emissive)? this.mat.emissive.clone():null;
     this.i0=(this.mat&&'emissiveIntensity'in this.mat)? this.mat.emissiveIntensity:0;
 
-    // super-hands (proche et rayon via colliderEvent)
+    // ✅ Survol par super-hands (prox & rayon via colliderEvent) :
     el.addEventListener('hover-start', ()=>this.set(true));
     el.addEventListener('hover-end',   ()=>this.set(false));
-    el.addEventListener('grab-start',  ()=>this.set(true));
-    el.addEventListener('grab-end',    ()=>this.set(false));
 
-    // fallback direct: événements du raycaster
+    // ✅ Survol direct via raycaster (fallback direct) :
     el.addEventListener('raycaster-intersected', ()=>this.set(true));
     el.addEventListener('raycaster-intersected-cleared', ()=>this.set(false));
+
+    // ❌ NE PAS écouter grab-start / grab-end (source du "ghost highlight")
   },
   set(on){
-    const el=this.el; el.object3D.scale.setScalar(on? this.data.scale : this.s0.x);
+    const el=this.el;
+    el.object3D.scale.setScalar(on? this.data.scale : this.s0.x);
     if(this.mat){
       if(on){
         (this.mat.emissive||(this.mat.emissive=new THREE.Color(this.data.emissive))).set(this.data.emissive);
@@ -116,6 +118,7 @@ AFRAME.registerComponent('hover-highlight', {
     }
   }
 });
+
 
 
     // Spawner : bouton A (droite) ou touche N — (laisse comme précédemment)
