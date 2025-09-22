@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TP WebVR – SceneVR + Grabbing (fix)</title>
+  <title>TP WebVR – SceneVR + Grabbing + Debug Hover</title>
 
   <!-- A-Frame (>=1.4 pour Quest 2/3) -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
@@ -12,10 +12,9 @@
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.5.0/dist/aframe-extras.min.js"></script>
 
   <!-- Physics system (CANNON-ES compatible A-Frame 1.5) -->
-  <!-- NB: utiliser une version récente compatible r15x -->
   <script src="https://cdn.jsdelivr.net/npm/aframe-physics-system@6.1.0/dist/aframe-physics-system.min.js"></script>
 
-  <!-- super-hands (grabbable/draggable/stretchable) — NE PAS charger d'autre lib "grabbable" -->
+  <!-- super-hands (grabbable/draggable/stretchable) -->
   <script src="https://unpkg.com/super-hands@4.0.3/dist/super-hands.min.js"></script>
 
   <style>
@@ -33,19 +32,86 @@
     AFRAME.registerComponent('turn-with-right-joystick', {
       schema: { rig: {type: 'selector'}, speed: {default: 120} }, // degrés/s à stick=1
       init() {
-        this.x = 0;
-        this.dead = 0.15;
+        this.x = 0; this.dead = 0.15;
         this.el.addEventListener('axismove', e => {
           if (e && e.detail && Array.isArray(e.detail.axis)) this.x = e.detail.axis[0] || 0;
         });
       },
       tick(t, dt) {
-        if (!this.data.rig) return;
-        const stick = Math.abs(this.x) > this.dead ? this.x : 0;
-        if (!stick) return;
-        const rot = this.data.rig.getAttribute('rotation');
-        rot.y -= stick * this.data.speed * (dt/1000);
-        this.data.rig.setAttribute('rotation', rot);
+        const rig = this.data.rig; if (!rig) return;
+        const stick = Math.abs(this.x) > this.dead ? this.x : 0; if (!stick) return;
+        const rot = rig.getAttribute('rotation'); rot.y -= stick * this.data.speed * (dt/1000);
+        rig.setAttribute('rotation', rot);
+      }
+    });
+
+    // Effet de survol / saisie sur les cibles (.hoverable)
+    AFRAME.registerComponent('hover-highlight', {
+      schema: {
+        hoverScale: {default: 1.06},
+        hoverEmissive: {default: '#ffffff'},
+        hoverIntensity: {default: 0.4}
+      },
+      init() {
+        const el = this.el;
+        this._origScale = el.object3D.scale.clone();
+        const mat = el.getObject3D('mesh') && el.getObject3D('mesh').material;
+        this._origEmissive = (mat && mat.emissive) ? mat.emissive.clone() : null;
+        this._origEmissiveIntensity = (mat && 'emissiveIntensity' in mat) ? mat.emissiveIntensity : 0;
+
+        el.addEventListener('hover-start', this.onHoverStart = () => this.setHover(true));
+        el.addEventListener('hover-end',   this.onHoverEnd   = () => this.setHover(false));
+        el.addEventListener('grab-start',  this.onGrabStart  = () => this.setHover(true));
+        el.addEventListener('grab-end',    this.onGrabEnd    = () => this.setHover(false));
+      },
+      setHover(state) {
+        const el = this.el;
+        // scale
+        el.object3D.scale.setScalar(state ? this.data.hoverScale : this._origScale.x);
+        // emissive
+        const mesh = el.getObject3D('mesh');
+        if (mesh && mesh.material) {
+          const m = mesh.material;
+          if (state) {
+            if (!m.emissive) m.emissive = new THREE.Color(this.data.hoverEmissive);
+            else m.emissive.set(this.data.hoverEmissive);
+            m.emissiveIntensity = this.data.hoverIntensity;
+            m.needsUpdate = true;
+          } else {
+            if (this._origEmissive) m.emissive.copy(this._origEmissive);
+            m.emissiveIntensity = this._origEmissiveIntensity;
+            m.needsUpdate = true;
+          }
+        }
+      },
+      remove() {
+        const el = this.el;
+        el.removeEventListener('hover-start', this.onHoverStart);
+        el.removeEventListener('hover-end', this.onHoverEnd);
+        el.removeEventListener('grab-start', this.onGrabStart);
+        el.removeEventListener('grab-end', this.onGrabEnd);
+      }
+    });
+
+    // Petit point qui se place sur le point d'impact du raycaster (debug visuel)
+    AFRAME.registerComponent('ray-hit-dot', {
+      schema: {raycasterEl: {type: 'selector'}},
+      init() {
+        this.visible = false;
+        this.el.setAttribute('visible', 'false');
+        const rc = this.data.raycasterEl;
+        if (!rc) return;
+
+        rc.addEventListener('raycaster-intersection', e => {
+          if (!e.detail || !e.detail.intersections || !e.detail.intersections[0]) return;
+          const p = e.detail.intersections[0].point;
+          this.el.object3D.position.copy(p);
+          if (!this.visible) { this.visible = true; this.el.setAttribute('visible', 'true'); }
+        });
+
+        rc.addEventListener('raycaster-intersection-cleared', () => {
+          if (this.visible) { this.visible = false; this.el.setAttribute('visible', 'false'); }
+        });
       }
     });
   </script>
@@ -54,10 +120,10 @@
 <body>
   <div class="overlay">
     <strong>TP WebVR – Ex.1 & Ex.2</strong><br/>
-    🧭 Gauche : joystick = déplacement<br/>
-    ↪️ Droit : joystick = rotation<br/>
-    🤏 Saisir/relâcher : gâchettes<br/>
-    🧲 Raycast main droite pour saisir à distance<br/>
+    🧭 Gauche : joystick = déplacement (laser court debug + collider pour grab proche)<br/>
+    ↪️ Droit : joystick = rotation (laser long pour viser/attraper à distance)<br/>
+    🤏 Gâchettes : saisir / relâcher<br/>
+    🧲 Pointeur apparaît au point d’impact du rayon<br/>
     🛠️ Inspector : <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd>
   </div>
 
@@ -73,25 +139,30 @@
     <a-entity light="type: directional; intensity: 1; castShadow: true"
               position="2 6 3" rotation="-45 30 0"></a-entity>
 
-    <!-- Sol (statique, reçoit ombres) -->
+    <!-- Sol -->
     <a-plane rotation="-90 0 0" width="30" height="30"
              color="#3c424a" material="roughness:1; metalness:0"
              shadow="receive: true" static-body></a-plane>
 
-    <!-- Objets (dynamiques, saisissables) -->
-    <a-box class="grabbable" position="-1 1.25 -3" width="1" height="1" depth="1"
+    <!-- Objets (dynamiques, saisissables, hoverables) -->
+    <a-box class="grabbable hoverable" hover-highlight
+           position="-1 1.25 -3" width="1" height="1" depth="1"
            color="#ff6f61" material="roughness:.6; metalness:.1"
            shadow="cast: true; receive: true" dynamic-body grabbable></a-box>
 
-    <a-sphere class="grabbable" position="1 1.5 -3" radius="0.5"
+    <a-sphere class="grabbable hoverable" hover-highlight
+              position="1 1.5 -3" radius="0.5"
               color="#7db5ff" material="roughness:.4; metalness:.15"
               shadow="cast: true; receive: true" dynamic-body grabbable></a-sphere>
 
-    <a-box class="grabbable" position="0 0.5 -2.2" width="0.5" height="0.5" depth="0.5"
+    <a-box class="grabbable hoverable" hover-highlight
+           position="0 0.5 -2.2" width="0.5" height="0.5" depth="0.5"
            color="#ffd166" shadow="cast: true; receive: true" dynamic-body grabbable></a-box>
-    <a-box class="grabbable" position="0.6 0.5 -2.2" width="0.5" height="0.5" depth="0.5"
+    <a-box class="grabbable hoverable" hover-highlight
+           position="0.6 0.5 -2.2" width="0.5" height="0.5" depth="0.5"
            color="#06d6a0" shadow="cast: true; receive: true" dynamic-body grabbable></a-box>
-    <a-box class="grabbable" position="-0.6 0.5 -2.2" width="0.5" height="0.5" depth="0.5"
+    <a-box class="grabbable hoverable" hover-highlight
+           position="-0.6 0.5 -2.2" width="0.5" height="0.5" depth="0.5"
            color="#ef476f" shadow="cast: true; receive: true" dynamic-body grabbable></a-box>
 
     <!-- Rig + Caméra + Mains -->
@@ -99,20 +170,28 @@
               movement-controls="fly:false; speed:0.12; constrainToNavMesh:false">
       <a-entity camera look-controls wasd-controls="enabled:false"></a-entity>
 
-      <!-- Main gauche : grab prox avec collider volumétrique -->
+      <!-- Main gauche : grab prox (collider) + laser court debug -->
       <a-entity id="leftHand"
                 hand-controls="hand: left; handModelStyle: lowPoly; color: #ccccff"
                 super-hands
-                sphere-collider="objects: .grabbable"></a-entity>
+                sphere-collider="objects: .grabbable"
+                raycaster="objects: .grabbable; showLine: true; far: 2.2">
+        <!-- Trait visible (optionnel : le raycaster avec showLine l’affiche déjà) -->
+      </a-entity>
 
       <!-- Main droite : raycast + grab distance + rotation du rig -->
       <a-entity id="rightHand"
                 hand-controls="hand: right; handModelStyle: highPoly; color: #ffcccc"
                 super-hands
                 raycaster="objects: .grabbable; showLine: true; far: 8"
-                line="opacity: 0.9"
-                turn-with-right-joystick="rig: #rig; speed: 140"></a-entity>
+                line="opacity: 0.95"
+                turn-with-right-joystick="rig: #rig; speed: 140">
+      </a-entity>
     </a-entity>
+
+    <!-- Pointeur de contact (suiveur du 1er rayon : main droite) -->
+    <a-sphere id="hitDot" radius="0.02" color="#ffffff" visible="false"
+              ray-hit-dot="raycasterEl: #rightHand"></a-sphere>
 
     <a-sky color="#1b2026"></a-sky>
   </a-scene>
