@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Quest VR – Move + Grab + Highlight (A-Frame 1.7.0)</title>
+  <title>Quest VR – Move + Grab + Highlight (smooth turn)</title>
 
   <!-- A-Frame 1.7.0 -->
   <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
@@ -27,7 +27,7 @@
   </style>
 
   <script>
-    // Déplacement au stick GAUCHE (écoute 'thumbstickmoved' de oculus-touch-controls)
+    // Déplacement au stick GAUCHE (corrigé : avant = pousser le stick vers l'avant)
     AFRAME.registerComponent('left-stick-move', {
       schema:{rig:{type:'selector'}, speed:{default:2.2}, dead:{default:0.18}},
       init(){
@@ -37,9 +37,7 @@
           this.vx = (Math.abs(x)>this.data.dead)? x : 0;
           this.vy = (Math.abs(y)>this.data.dead)? y : 0;
         };
-        // events propres Oculus
         this.el.addEventListener('thumbstickmoved', this.onThumb);
-        // fallback générique (au cas où)
         this.el.addEventListener('axismove', e=>{
           if(!e.detail||!Array.isArray(e.detail.axis)) return;
           const x=e.detail.axis[0]||0, y=e.detail.axis[1]||0;
@@ -53,8 +51,10 @@
         const rig=rigEl.object3D;
         const yaw = THREE.MathUtils.degToRad(rigEl.getAttribute('rotation').y);
         const cos=Math.cos(yaw), sin=Math.sin(yaw);
-        // Sur Oculus : pousser stick vers l'avant => y ~ -1, donc "forward" = -vy
-        const forward=-this.vy, strafe=this.vx, step=this.data.speed*(dt/1000);
+        // >>> inversion fixée : "forward" suit la valeur du stick (avant ~ -1 -> on garde le signe natif)
+        const forward=this.vy * -1;   // pousser vers l'avant (y ≈ -1) -> +1 en "forward"
+        const strafe = this.vx;
+        const step=this.data.speed*(dt/1000);
         const dx = (strafe*cos + forward*sin)*step;
         const dz = (forward*cos - strafe*sin)*step;
         rig.position.x += dx; rig.position.z += dz;
@@ -62,31 +62,39 @@
       remove(){ this.el.removeEventListener('thumbstickmoved', this.onThumb); }
     });
 
-    // Snap-turn au stick DROIT, basé sur events Oculus
-    AFRAME.registerComponent('right-stick-snapturn', {
-      schema:{rig:{type:'selector'}, step:{default:30}, threshold:{default:0.6}, cooldown:{default:220}},
+    // Rotation lisse au stick DROIT (analogique)
+    AFRAME.registerComponent('right-stick-smoothturn', {
+      schema:{rig:{type:'selector'}, speedDeg:{default:140}, dead:{default:0.18}},
       init(){
-        this.last=0;
+        this.x=0;
         this.onThumb = e=>{
-          const x=e.detail.x||0, now=performance.now();
-          if(now-this.last < this.data.cooldown) return;
-          if(x> this.data.threshold){ this.turn(-this.data.step); this.last=now; }
-          else if(x< -this.data.threshold){ this.turn(this.data.step); this.last=now; }
+          const x=e.detail.x||0;
+          this.x = (Math.abs(x)>this.data.dead)? x : 0;
         };
         this.el.addEventListener('thumbstickmoved', this.onThumb);
+        this.el.addEventListener('axismove', e=>{
+          if(!e.detail||!Array.isArray(e.detail.axis)) return;
+          const x=e.detail.axis[0]||0;
+          this.x = (Math.abs(x)>this.data.dead)? x : 0;
+        });
       },
-      turn(d){ const r=this.data.rig.getAttribute('rotation'); r.y+=d; this.data.rig.setAttribute('rotation', r); },
+      tick(t,dt){
+        const rig=this.data.rig; if(!rig||!this.x) return;
+        const rot=rig.getAttribute('rotation');
+        rot.y -= this.x * this.data.speedDeg * (dt/1000); // signe façon FPS
+        rig.setAttribute('rotation', rot);
+      },
       remove(){ this.el.removeEventListener('thumbstickmoved', this.onThumb); }
     });
 
-    // Surbrillance (scale + émissif) via super-hands: hover-start/hover-end
+    // Surbrillance (scale + émissif) via super-hands
     AFRAME.registerComponent('hover-highlight', {
       schema:{scale:{default:1.06}, emissive:{default:'#ffffff'}, intensity:{default:0.45}},
       init(){
         const el=this.el;
         this.s0=el.object3D.scale.clone();
-        this.getMat=()=>{const m=el.getObject3D('mesh'); return m? (Array.isArray(m.material)?m.material[0]:m.material):null;};
-        this.mat=this.getMat();
+        const getMat=()=>{const m=el.getObject3D('mesh'); return m? (Array.isArray(m.material)?m.material[0]:m.material):null;};
+        this.mat=getMat();
         this.e0=(this.mat&&this.mat.emissive)? this.mat.emissive.clone():null;
         this.i0=(this.mat&&'emissiveIntensity'in this.mat)? this.mat.emissiveIntensity:0;
         el.addEventListener('hover-start', ()=>this.set(true));
@@ -109,7 +117,7 @@
       }
     });
 
-    // Spawner : bouton A (manette droite) ou touche N — SPAWN DEVANT (inversé par rapport à ton cas)
+    // Spawner : bouton A (droite) ou touche N — (laisse comme précédemment)
     AFRAME.registerComponent('spawner', {
       schema:{camera:{type:'selector'}},
       init(){
@@ -120,12 +128,11 @@
       },
       spawn(){
         const camEl=this.data.camera; if(!camEl) return;
-        const cam=camEl.object3D;
-        const dir=new THREE.Vector3(); cam.getWorldDirection(dir);
+        const cam=camEl.object3D, dir=new THREE.Vector3(); cam.getWorldDirection(dir);
         dir.y=0; dir.normalize();
-        // >>> ICI on inverse pour corriger ton cas (apparaît DEVANT) <<<
-        const origin = camEl.object3D.getWorldPosition(new THREE.Vector3());
-        const pos = origin.clone().add(dir.multiplyScalar(-1.4)); // note: -1.4 pour "devant"
+        // garde le spawn devant toi (ajusté précédemment)
+        const origin=camEl.object3D.getWorldPosition(new THREE.Vector3());
+        const pos=origin.clone().add(dir.multiplyScalar(-1.4)); // -1.4 pour "devant" selon la direction retournée
         pos.y=1.3;
 
         const isBox=Math.random()<0.5;
@@ -149,7 +156,7 @@
 <body>
   <div class="overlay">
     <strong>Commandes Quest</strong><br/>
-    🧭 Stick gauche : se déplacer • 🔁 Stick droit : snap-turn (30°)<br/>
+    🧭 Stick gauche : se déplacer (avant/arrière corrigé) • 🔁 Stick droit : rotation <b>lisse</b><br/>
     🎯 Lasers par défaut depuis chaque manette • 🤏 Gâchettes : grab/drop<br/>
     ➕ Spawn objet : bouton <b>A</b> (droite) ou <kbd>N</kbd> (clavier)
   </div>
@@ -174,13 +181,17 @@
     <a-entity id="rig" position="0 1.6 3">
       <a-entity id="cam" camera look-controls wasd-controls="enabled:false"></a-entity>
 
-      <!-- MAIN GAUCHE : entrée oculus + laser enfant + super-hands + collider -->
-      <a-entity id="leftCtl" oculus-touch-controls="hand: left" left-stick-move="rig:#rig; speed:2.2; dead:0.18" super-hands sphere-collider="objects:.grab-target">
+      <!-- MAIN GAUCHE : locomotion -->
+      <a-entity id="leftCtl" oculus-touch-controls="hand: left"
+                left-stick-move="rig:#rig; speed:2.2; dead:0.18"
+                super-hands sphere-collider="objects:.grab-target">
         <a-entity laser-controls="hand: left" raycaster="objects:.grab-target; showLine:true; far:8"></a-entity>
       </a-entity>
 
-      <!-- MAIN DROITE : snap-turn + laser + super-hands + spawner -->
-      <a-entity id="rightCtl" oculus-touch-controls="hand: right" right-stick-snapturn="rig:#rig; step:30; threshold:0.6; cooldown:220" super-hands spawner="camera:#cam">
+      <!-- MAIN DROITE : rotation lisse + spawn -->
+      <a-entity id="rightCtl" oculus-touch-controls="hand: right"
+                right-stick-smoothturn="rig:#rig; speedDeg:140; dead:0.18"
+                super-hands spawner="camera:#cam">
         <a-entity laser-controls="hand: right" raycaster="objects:.grab-target; showLine:true; far:8"></a-entity>
       </a-entity>
     </a-entity>
