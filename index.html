@@ -3,19 +3,20 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TP WebVR – SceneVR + Grabbing</title>
+  <title>TP WebVR – SceneVR + Grabbing (fix)</title>
 
-  <!-- A-Frame (>=1.4 pour Meta Quest 2/3) -->
+  <!-- A-Frame (>=1.4 pour Quest 2/3) -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
 
-  <!-- A-Frame Extras (movement-controls, etc.) -->
+  <!-- A-Frame Extras (movement-controls, navmesh, etc.) -->
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.5.0/dist/aframe-extras.min.js"></script>
 
-  <!-- Physics system (Cannon.js) -->
-  <script src="https://cdn.jsdelivr.net/gh/n5ro/aframe-physics-system@v4.0.1/dist/aframe-physics-system.min.js"></script>
+  <!-- Physics system (CANNON-ES compatible A-Frame 1.5) -->
+  <!-- NB: utiliser une version récente compatible r15x -->
+  <script src="https://cdn.jsdelivr.net/npm/aframe-physics-system@6.1.0/dist/aframe-physics-system.min.js"></script>
 
-  <!-- super-hands (grabbable/draggable/stretchable) -->
-  <script src="https://unpkg.com/super-hands@3.0.3/dist/super-hands.min.js"></script>
+  <!-- super-hands (grabbable/draggable/stretchable) — NE PAS charger d'autre lib "grabbable" -->
+  <script src="https://unpkg.com/super-hands@4.0.3/dist/super-hands.min.js"></script>
 
   <style>
     body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
@@ -28,35 +29,23 @@
   </style>
 
   <script>
-    // Composant : tourner le rig avec le JOYSTICK DROIT
-    // Ecoute les "axismove" du contrôleur droit et applique une rotation Y au rig.
+    // Rotation du rig avec le joystick droit (axe X)
     AFRAME.registerComponent('turn-with-right-joystick', {
-      schema: {
-        rig: {type: 'selector'},         // l'entité rig à tourner
-        turnSpeed: {default: 1.8}        // radian/s par valeur de stick (−1..1)
-      },
-      init: function () {
-        this.stickX = 0;
-        // On suppose que ce composant est mis sur la main droite.
-        this.el.addEventListener('axismove', (e) => {
-          // Sur Quest, le thumbstick du contrôleur courant expose [x,y] sur axis[0], axis[1]
-          // On ne prend que l’axe horizontal pour tourner.
-          if (e && e.detail && Array.isArray(e.detail.axis)) {
-            this.stickX = e.detail.axis[0] || 0;
-          }
+      schema: { rig: {type: 'selector'}, speed: {default: 120} }, // degrés/s à stick=1
+      init() {
+        this.x = 0;
+        this.dead = 0.15;
+        this.el.addEventListener('axismove', e => {
+          if (e && e.detail && Array.isArray(e.detail.axis)) this.x = e.detail.axis[0] || 0;
         });
       },
-      tick: function (time, dt) {
+      tick(t, dt) {
         if (!this.data.rig) return;
-        const deltaSec = dt / 1000;
-        // zone morte pour éviter micro-tremblements
-        const dead = 0.15;
-        const x = Math.abs(this.stickX) > dead ? this.stickX : 0;
-        if (x !== 0) {
-          const rigRot = this.data.rig.getAttribute('rotation');
-          rigRot.y -= x * this.data.turnSpeed;  // signe choisi pour un feeling "FPS"
-          this.data.rig.setAttribute('rotation', rigRot);
-        }
+        const stick = Math.abs(this.x) > this.dead ? this.x : 0;
+        if (!stick) return;
+        const rot = this.data.rig.getAttribute('rotation');
+        rot.y -= stick * this.data.speed * (dt/1000);
+        this.data.rig.setAttribute('rotation', rot);
       }
     });
   </script>
@@ -65,106 +54,66 @@
 <body>
   <div class="overlay">
     <strong>TP WebVR – Ex.1 & Ex.2</strong><br/>
-    <div>🧭 Gauche : joystick = déplacement</div>
-    <div>↪️ Droit : joystick = rotation</div>
-    <div>🤏 Saisir/relâcher : gâchettes</div>
-    <div>🧲 Raycast (main droite) pour saisir à distance</div>
-    <div>🛠️ Inspector : <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd></div>
+    🧭 Gauche : joystick = déplacement<br/>
+    ↪️ Droit : joystick = rotation<br/>
+    🤏 Saisir/relâcher : gâchettes<br/>
+    🧲 Raycast main droite pour saisir à distance<br/>
+    🛠️ Inspector : <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd>
   </div>
 
   <a-scene
-    renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true; alpha: false; sortObjects: true; logarithmicDepthBuffer: true; shadowMap: true"
-    shadow="type: pcfsoft"
     background="color: #20252b"
-    physics="gravity: -9.8"
+    renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true; sortTransparentObjects: true"
+    shadow="type: pcfsoft"
+    physics="driver: cannon-es; gravity: -9.8"
     vr-mode-ui="enabled: true"
   >
-
-    <!-- Assets (textures si besoin) -->
-    <a-assets>
-      <!-- On peut ajouter ici des GLB/GLTF si nécessaires plus tard -->
-    </a-assets>
-
-    <!-- LUMIÈRES (directionnelle + ambient) -->
-    <!-- Lumière directionnelle qui projette des ombres réalistes -->
-    <a-entity
-      light="type: directional; intensity: 1.0; castShadow: true"
-      position="2 6 3"
-      rotation="-45 30 0"
-      shadow="cast: true"
-    ></a-entity>
-
-    <!-- Ambient douce pour éclairage global -->
+    <!-- Lumières -->
     <a-entity light="type: ambient; intensity: 0.35; color: #ffffff"></a-entity>
+    <a-entity light="type: directional; intensity: 1; castShadow: true"
+              position="2 6 3" rotation="-45 30 0"></a-entity>
 
-    <!-- SOL (plan) — reçoit les ombres + corps statique pour la physique -->
-    <a-plane
-      rotation="-90 0 0"
-      width="30" height="30"
-      color="#3c424a"
-      material="roughness: 1; metalness: 0"
-      shadow="receive: true"
-      static-body
-    ></a-plane>
+    <!-- Sol (statique, reçoit ombres) -->
+    <a-plane rotation="-90 0 0" width="30" height="30"
+             color="#3c424a" material="roughness:1; metalness:0"
+             shadow="receive: true" static-body></a-plane>
 
-    <!-- OBJETS 3D : cube + sphère — projettent et reçoivent des ombres, dynamiques (physique) -->
-    <a-box
-      class="grabbable"
-      position="-1 1.25 -3"
-      depth="1.0" height="1.0" width="1.0"
-      color="#ff6f61"
-      material="roughness: 0.6; metalness: 0.1"
-      shadow="cast: true; receive: true"
-      dynamic-body="mass: 1"
-      grabbable
-    ></a-box>
+    <!-- Objets (dynamiques, saisissables) -->
+    <a-box class="grabbable" position="-1 1.25 -3" width="1" height="1" depth="1"
+           color="#ff6f61" material="roughness:.6; metalness:.1"
+           shadow="cast: true; receive: true" dynamic-body grabbable></a-box>
 
-    <a-sphere
-      class="grabbable"
-      position="1 1.5 -3"
-      radius="0.5"
-      color="#7db5ff"
-      material="roughness: 0.4; metalness: 0.15"
-      shadow="cast: true; receive: true"
-      dynamic-body="mass: 1"
-      grabbable
-    ></a-sphere>
+    <a-sphere class="grabbable" position="1 1.5 -3" radius="0.5"
+              color="#7db5ff" material="roughness:.4; metalness:.15"
+              shadow="cast: true; receive: true" dynamic-body grabbable></a-sphere>
 
-    <!-- Une pile de petits cubes à saisir -->
-    <a-box class="grabbable" position="0 0.5 -2.2" depth="0.5" height="0.5" width="0.5"
+    <a-box class="grabbable" position="0 0.5 -2.2" width="0.5" height="0.5" depth="0.5"
            color="#ffd166" shadow="cast: true; receive: true" dynamic-body grabbable></a-box>
-    <a-box class="grabbable" position="0.6 0.5 -2.2" depth="0.5" height="0.5" width="0.5"
+    <a-box class="grabbable" position="0.6 0.5 -2.2" width="0.5" height="0.5" depth="0.5"
            color="#06d6a0" shadow="cast: true; receive: true" dynamic-body grabbable></a-box>
-    <a-box class="grabbable" position="-0.6 0.5 -2.2" depth="0.5" height="0.5" width="0.5"
+    <a-box class="grabbable" position="-0.6 0.5 -2.2" width="0.5" height="0.5" depth="0.5"
            color="#ef476f" shadow="cast: true; receive: true" dynamic-body grabbable></a-box>
 
-    <!-- RIG UTILISATEUR : déplacement au joystick GAUCHE + caméra -->
-    <!-- movement-controls gère les déplacements (Z/QS/DW = clavier & sticks en VR) -->
-    <a-entity id="rig"
-              position="0 1.6 3"
-              movement-controls="fly: false; speed: 0.12; constrainToNavMesh: false">
+    <!-- Rig + Caméra + Mains -->
+    <a-entity id="rig" position="0 1.6 3"
+              movement-controls="fly:false; speed:0.12; constrainToNavMesh:false">
+      <a-entity camera look-controls wasd-controls="enabled:false"></a-entity>
 
-      <!-- Caméra (HMD en VR) -->
-      <a-entity camera look-controls wasd-controls="enabled: false"></a-entity>
-
-      <!-- MAIN GAUCHE : grab de proximité (sphere-collider) -->
+      <!-- Main gauche : grab prox avec collider volumétrique -->
       <a-entity id="leftHand"
                 hand-controls="hand: left; handModelStyle: lowPoly; color: #ccccff"
                 super-hands
-                sphere-collider="objects: .grabbable"
-      ></a-entity>
+                sphere-collider="objects: .grabbable"></a-entity>
 
-      <!-- MAIN DROITE : raycast + grab à distance + rotation joystick droit -->
+      <!-- Main droite : raycast + grab distance + rotation du rig -->
       <a-entity id="rightHand"
                 hand-controls="hand: right; handModelStyle: highPoly; color: #ffcccc"
                 super-hands
                 raycaster="objects: .grabbable; showLine: true; far: 8"
                 line="opacity: 0.9"
-                turn-with-right-joystick="rig: #rig; turnSpeed: 2.2">
-      </a-entity>
+                turn-with-right-joystick="rig: #rig; speed: 140"></a-entity>
     </a-entity>
 
-    <!-- Ciel léger (optionnel) -->
     <a-sky color="#1b2026"></a-sky>
   </a-scene>
 </body>
