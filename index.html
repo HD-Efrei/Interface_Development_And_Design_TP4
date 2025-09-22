@@ -1,466 +1,56 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-  <head>
-    <meta charset="utf-8">
-    <title>TP4 WebVR - Dual Stick (A-Frame 0.9.2) — Grab desktop (F) + VR ready</title>
+<head>
+  <meta charset="utf-8">
+  <title>A-Frame WebXR (Quest 3) — Grab minimal</title>
 
-    <!-- Versions compatibles avec A-Frame 0.9.2 -->
-    <script src="https://aframe.io/releases/0.9.2/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/cannon@0.6.2/build/cannon.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/aframe-physics-system@3.3.0/dist/aframe-physics-system.min.js"></script>
-    <script src="https://unpkg.com/aframe-extras@4.1.2/dist/aframe-extras.min.js"></script>
-    <script src="https://unpkg.com/super-hands@3.0.3/dist/super-hands.min.js"></script>
-    <script src="https://unpkg.com/aframe-particle-system-component@1.0.9/dist/aframe-particle-system-component.min.js"></script>
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/aframe-physics-system@4.2.3/dist/aframe-physics-system.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/akbartus/superhands-aframe@4.0.2/dist/super-hands.min.js"></script>
 
-    <style>
-      html,body{height:100%;margin:0}
-      .hud{position:fixed;left:12px;top:12px;padding:8px 12px;background:#0008;color:#fff;border-radius:8px;font:13px system-ui;z-index:9;pointer-events:none}
-      #enterVrBtn{position:fixed;right:12px;bottom:12px;z-index:10}
-    </style>
+  <style>html,body{height:100%;margin:0;background:#000}</style>
+</head>
+<body>
+  <a-scene vr-mode-ui="enabled: true"
+           renderer="colorManagement: true"
+           physics="driver: cannon; gravity: -9.8">
 
-    <script>
-      /* ---------- Auto-focus canvas ---------- */
-      AFRAME.registerComponent('autofocus-canvas', {
-        init () {
-          const scene = this.el.sceneEl;
-          const focusCanvas = () => {
-            const c = scene.canvas;
-            if (!c) return;
-            c.setAttribute('tabindex','0');
-            c.focus();
-            window.focus();
-          };
-          if (scene.hasLoaded) focusCanvas(); else scene.addEventListener('loaded', focusCanvas);
-          scene.addEventListener('enter-vr', focusCanvas);
-          scene.addEventListener('exit-vr',  focusCanvas);
-          window.addEventListener('click', focusCanvas, {capture:true});
-          window.addEventListener('touchstart', focusCanvas, {capture:true});
-        }
-      });
+    <!-- Sol -->
+    <a-plane rotation="-90 0 0" width="10" height="10" color="#7BC8A4"
+             static-body shadow="receive:true"></a-plane>
 
-AFRAME.registerComponent('auto-refresh-physics', {
-  schema: { watch: {default: 'geometry,scale'} },
-  init () {
-    const el = this.el;
-    const queue = () => {
-      if (this._job) return;
-      this._job = setTimeout(() => {
-        this._job = null;
-        const attr = el.hasAttribute('dynamic-body') ? 'dynamic-body'
-                   : el.hasAttribute('static-body')   ? 'static-body' : null;
-        if (!attr) return;
-        const val = el.getAttribute(attr);
-        el.removeAttribute(attr);
-        // petite latence pour laisser A-Frame finir d’appliquer la géométrie
-        requestAnimationFrame(()=> el.setAttribute(attr, val || ''));
-      }, 0);
-    };
-    el.addEventListener('componentchanged', (e) => {
-      if (['geometry','scale'].includes(e.detail.name)) queue();
-    });
-    el.addEventListener('model-loaded', queue);
-  },
-  remove(){ if (this._job) { clearTimeout(this._job); this._job = null; } }
-});
+    <!-- Lumières -->
+    <a-entity light="type: ambient; intensity: 0.5"></a-entity>
+    <a-entity light="type: directional; intensity: 0.8; castShadow: true" position="1 4 2"></a-entity>
 
+    <!-- Objets grabbables -->
+    <a-box position="-0.6 1 -3" width="0.4" height="0.4" depth="0.4"
+           color="#4CC3D9"
+           grabbable dynamic-body shadow="cast:true;receive:true"></a-box>
 
+    <a-sphere position="0.4 1 -3" radius="0.25"
+              color="#EF2D5E"
+              grabbable dynamic-body shadow="cast:true;receive:true"></a-sphere>
 
-      /* ---------- Déplacements AZERTY & QWERTY alignés caméra ---------- */
-      AFRAME.registerComponent('dual-joystick-controls', {
-        schema: { moveSpeed:{default:0.1}, turnSpeed:{default:2.0} },
-        init: function () {
-          this.leftX = 0; this.leftY = 0; this.rightX = 0;
-          this.keys = {fw:false,bk:false,lf:false,rt:false, turnL:false, turnR:false};
-          const mapKey = {
-            'z':'fw','q':'lf','s':'bk','d':'rt',      // AZERTY
-            'w':'fw','a':'lf','s':'bk','d':'rt',      // QWERTY
-            'arrowup':'fw','arrowleft':'lf','arrowdown':'bk','arrowright':'rt',
-            'a':'turnL','e':'turnR'
-          };
-          this.cam = this.el.querySelector('#cam') || this.el.querySelector('[camera]');
-          const left = this.el.querySelector('#left');
-          const right= this.el.querySelector('#right');
-          if (left)  left.addEventListener('axismove', e=>{ this.leftX = e.detail.axis[0]||0; this.leftY = e.detail.axis[1]||0; });
-          if (right) right.addEventListener('axismove', e=>{ this.rightX = (e.detail.axis[2]!==undefined?e.detail.axis[2]:e.detail.axis[0])||0; });
-          const ignore = () => {
-            const el = document.activeElement; const t = el && el.tagName;
-            return t==='INPUT'||t==='TEXTAREA'||(el && el.isContentEditable);
-          };
-          this._kd=(e)=>{ if(ignore())return; const k=(e.key||'').toLowerCase(); const act=mapKey[k]; if(!act)return; e.preventDefault(); e.stopPropagation(); this.keys[act]=true; };
-          this._ku=(e)=>{ if(ignore())return; const k=(e.key||'').toLowerCase(); const act=mapKey[k]; if(!act)return; e.preventDefault(); e.stopPropagation(); this.keys[act]=false; };
-          window.addEventListener('keydown', this._kd, {capture:true});
-          window.addEventListener('keyup',   this._ku, {capture:true});
-          this._fwd=new THREE.Vector3(); this._right=new THREE.Vector3(); this._up=new THREE.Vector3(0,1,0);
-        },
-        remove(){ window.removeEventListener('keydown', this._kd, {capture:true}); window.removeEventListener('keyup', this._ku, {capture:true}); },
-        tick: function (t, d) {
-          d = d||16;
-          const dead = v => Math.abs(v)>0.18 ? v : 0;
-          const jx = dead(this.leftX), jy = dead(this.leftY);
-          let ix=0, iy=0;
-          if(this.keys.fw) iy -= 1;
-          if(this.keys.bk) iy += 1;
-          if(this.keys.lf) ix -= 1;
-          if(this.keys.rt) ix += 1;
-          const moveX = jx + ix, moveY = jy + iy;
-          let rx = dead(this.rightX);
-          if(this.keys.turnL) rx -= 0.8;
-          if(this.keys.turnR) rx += 0.8;
-          if(rx) this.el.object3D.rotation.y -= rx*(this.data.turnSpeed*Math.PI/180);
-          if((moveX||moveY) && this.cam){
-            this.cam.object3D.getWorldDirection(this._fwd);
-            this._fwd.y=0; if(this._fwd.lengthSq()<1e-6) this._fwd.set(0,0,-1); this._fwd.normalize();
-            this._right.copy(this._up).cross(this._fwd).normalize();
-            const speed=this.data.moveSpeed*(d/16);
-            const dx=this._fwd.x*(moveY)*speed + this._right.x*(moveX)*speed;
-            const dz=this._fwd.z*(moveY)*speed + this._right.z*(moveX)*speed;
-            const o=this.el.object3D; o.position.x+=dx; o.position.z+=dz;
-          }
-        }
-      });
+    <!-- Rig + caméra + contrôleurs WebXR -->
+    <a-entity id="rig" position="0 1.6 0">
+      <a-entity camera look-controls wasd-controls></a-entity>
 
-      /* ---------- Surbrillance ---------- */
-      AFRAME.registerComponent('hover-highlight', {
-        schema: { color:{default:'#ffff66'}, emissive:{default:'#444444'} },
-        init() {
-          this._onEnter = () => this.setHighlight(true);
-          this._onLeave = () => this.setHighlight(false);
-          this.el.addEventListener('mouseenter', this._onEnter);
-          this.el.addEventListener('mouseleave', this._onLeave);
-          this.el.addEventListener('raycaster-intersected', this._onEnter);
-          this.el.addEventListener('raycaster-intersected-cleared', this._onLeave);
-          this.el.addEventListener('hover-start', this._onEnter);
-          this.el.addEventListener('hover-end', this._onLeave);
-          this.el.addEventListener('grab-start', this._onEnter);
-          this.el.addEventListener('grab-end', this._onLeave);
-        },
-        remove() {
-          this.el.removeEventListener('mouseenter', this._onEnter);
-          this.el.removeEventListener('mouseleave', this._onLeave);
-          this.el.removeEventListener('raycaster-intersected', this._onEnter);
-          this.el.removeEventListener('raycaster-intersected-cleared', this._onLeave);
-          this.el.removeEventListener('hover-start', this._onEnter);
-          this.el.removeEventListener('hover-end', this._onLeave);
-          this.el.removeEventListener('grab-start', this._onEnter);
-          this.el.removeEventListener('grab-end', this._onLeave);
-        },
-        setHighlight(on) {
-          if (!this._orig) {
-            const mat = this.el.getAttribute('material') || {};
-            this._orig = {
-              color: mat.color || this.el.getAttribute('color') || '#fff',
-              emissive: mat.emissive || '#000'
-            };
-          }
-          if (on) this.el.setAttribute('material', `color:${this.data.color}; emissive:${this.data.emissive}`);
-          else    this.el.setAttribute('material', `color:${this._orig.color}; emissive:${this._orig.emissive}`);
-        }
-      });
+      <a-entity laser-controls="hand: left"
+                raycaster="objects: [grabbable]; far: 3"
+                super-hands="colliderEvent: raycaster-intersection;
+                             colliderEventProperty: els;
+                             grabStartButtons: triggerdown, gripdown;
+                             grabEndButtons: triggerup, gripup"></a-entity>
 
-      /* ---------- Basculer souris ↔ entité (réticule) selon VR ---------- */
-      AFRAME.registerComponent('toggle-cursor-rayorigin', {
-        init () {
-          const scene = this.el.sceneEl;
-          const reticle = this.el.querySelector('#reticle');
-          const setMode = (mode) => {
-            this.el.setAttribute('cursor', 'rayOrigin', mode);
-            if (reticle) reticle.setAttribute('visible', mode === 'entity');
-          };
-          if (!scene.is('vr-mode')) setMode('mouse');
-          scene.addEventListener('enter-vr', () => setMode('entity'));
-          scene.addEventListener('exit-vr',  () => setMode('mouse'));
-        }
-      });
+      <a-entity laser-controls="hand: right"
+                raycaster="objects: [grabbable]; far: 3"
+                super-hands="colliderEvent: raycaster-intersection;
+                             colliderEventProperty: els;
+                             grabStartButtons: triggerdown, gripdown;
+                             grabEndButtons: triggerup, gripup"></a-entity>
+    </a-entity>
 
-      /* ---------- Grab desktop (toggle, F) : custom fiable ---------- */
-AFRAME.registerComponent('ray-grab-desktop', {
-  schema: {
-    key: {default:'KeyF'},      // touche pour prendre/lâcher
-    holdDistance: {default: 1.4}, // distance mini devant la caméra
-    holdYOffset:  {default: -0.05} // léger décalage vertical (sous le regard)
-  },
-
-  init () {
-    // point de “prise” invisible, enfant de la caméra
-    this.holder = document.createElement('a-entity');
-    this.holder.setAttribute('position', `0 ${this.data.holdYOffset} -${this.data.holdDistance}`);
-    this.el.appendChild(this.holder);
-
-    this.held = null; // {el, hadDynamic, culled[]}
-    this._tmpQ     = new THREE.Quaternion();
-    this._lastDt   = 16;
-    this._lastPos  = new THREE.Vector3();
-    this._currPos  = new THREE.Vector3();
-
-    this._onKey = (e)=>{
-      if (e.code !== this.data.key) return;
-      e.preventDefault(); e.stopPropagation();
-      this.toggleGrab();
-    };
-    window.addEventListener('keydown', this._onKey, {capture:true});
-  },
-  remove(){ window.removeEventListener('keydown', this._onKey, {capture:true}); },
-
-  /* --------- helpers --------- */
-  _getHolderWorldPos(){
-    return this.holder.object3D.getWorldPosition(this._currPos);
-  },
-  _applyHolderPoseTo(el){
-    const obj = el.object3D;
-    obj.position.copy(this.holder.object3D.getWorldPosition(new THREE.Vector3()));
-    obj.quaternion.copy(this.holder.object3D.getWorldQuaternion(this._tmpQ));
-  },
-
-  _findTarget(){
-    const rc = this.el.components.raycaster;
-    if (!rc) return null;
-
-    // 1) si on a la liste triée des intersections, on prend la 1ère
-    if (rc.intersections && rc.intersections.length){
-      const obj = rc.intersections[0].object;
-      const el = obj && obj.el;
-      return (el && el.hasAttribute('grabbable')) ? el : null;
-    }
-    // 2) fallback: intersectedEls (non trié)
-    if (rc.intersectedEls && rc.intersectedEls.length){
-      for (const el of rc.intersectedEls){
-        if (el.hasAttribute('grabbable')) return el;
-      }
-    }
-    return null;
-  },
-
-  toggleGrab(){
-    if (this.held) { this.release(); }
-    else {
-      const target = this._findTarget();
-      if (!target){ console.log('[grab] rien sous le rayon'); return; }
-      this.grab(target);
-    }
-  },
-
-  /* --------- grab / release --------- */
-  grab(el){
-    // désactiver temporairement la physique (évite les explosions/forces contraires)
-    const hadDynamic = el.hasAttribute('dynamic-body');
-    if (hadDynamic) el.removeAttribute('dynamic-body');
-
-    // éviter que l’objet soit masqué par le frustum culling
-    const culled = [];
-    el.object3D.traverse(n=>{ if (n.isMesh) { culled.push(n); n.frustumCulled = false; }});
-    el.setAttribute('visible','true');
-
-    // Adapter la distance de prise à la taille de l'objet (pour ne pas “clipper”)
-    const box  = new THREE.Box3().setFromObject(el.object3D);
-    const size = new THREE.Vector3();
-    if (!box.isEmpty()) box.getSize(size);
-    const approxRadius = Math.max(size.x, size.y, size.z) * 0.5;
-    const dist = Math.max(this.data.holdDistance, approxRadius + 0.15);
-    this.holder.setAttribute('position', `0 ${this.data.holdYOffset} -${dist}`);
-
-    // snap initial à la pose du holder
-    this._applyHolderPoseTo(el);
-
-    // mémorise et initialise la mesure de vitesse
-    this.held = { el, hadDynamic, culled };
-    this._lastPos.copy(this._getHolderWorldPos());
-    console.log('[grab] pris:', el);
-  },
-
-  release(){
-    if (!this.held) return;
-    const {el, hadDynamic, culled} = this.held;
-
-    // calcule une vitesse d’éjection douce depuis le mouvement du holder
-    const worldPos = this._getHolderWorldPos();
-    const dtSec = Math.max(0.016, this._lastDt/1000);
-    const vel = worldPos.clone().sub(this._lastPos).multiplyScalar(1/dtSec);
-
-    // réactive la physique et applique la vitesse quand le body est prêt
-    if (hadDynamic){
-      el.setAttribute('dynamic-body','');
-      el.addEventListener('body-loaded', function onBody(){
-        el.removeEventListener('body-loaded', onBody);
-        if (el.body) el.body.velocity.set(vel.x, vel.y, vel.z);
-      });
-    }
-
-    // restaurer le frustumCulled
-    culled.forEach(n=> n.frustumCulled = true);
-
-    this.held = null;
-    console.log('[grab] lâché');
-  },
-
-  tick(time, dt){
-    this._lastDt = dt || 16;
-    if (!this.held) return;
-
-    const el = this.held.el;
-
-    // suit la pose du holder chaque frame
-    this._applyHolderPoseTo(el);
-
-    // met à jour la mesure de vitesse
-    this._lastPos.copy(this._getHolderWorldPos());
-  }
-});
-
-
-
-
-      /* ---------- Look uniquement en VR (pas de drag souris en desktop) ---------- */
-      AFRAME.registerComponent('look-only-in-vr', {
-        init () {
-          const scene = this.el.sceneEl;
-          const set = (on) => {
-            if (!this.el.components['look-controls']) this.el.setAttribute('look-controls', '');
-            this.el.setAttribute('look-controls', `enabled:${on}; pointerLockEnabled:${on}`);
-            const lc = this.el.components['look-controls'];
-            if (lc) (on ? lc.play() : lc.pause());
-          };
-          set(false);
-          scene.addEventListener('enter-vr', () => set(true));
-          scene.addEventListener('exit-vr',  () => set(false));
-        }
-      });
-
-      /* ---------- Check ---------- */
-      window.addEventListener('load',()=>{
-        console.log('[CHECK]',{
-          AFRAME:!!window.AFRAME,
-          physicsV3:!!AFRAME.systems['physics'],
-          sphereCollider:!!AFRAME.components['sphere-collider'],
-          superHands:!!AFRAME.components['super-hands']
-        });
-      });
-    </script>
-  </head>
-  <body>
-    <div class="hud">
-      Déplacement: Z/Q/S/D ou flèches · Rotation: <b>A</b>/<b>E</b> ·
-      Saisir/Lâcher desktop (toggle): <b>F</b> · Viser avec le rayon
-    </div>
-
-    <button id="enterVrBtn">Entrer en VR</button>
-    <script>
-      window.addEventListener('load', () => {
-        const scene = document.querySelector('a-scene');
-        const btn = document.getElementById('enterVrBtn');
-        const focusCanvas = () => {
-          const c = scene && scene.canvas;
-          if (!c) return;
-          c.setAttribute('tabindex','0'); c.focus(); window.focus();
-        };
-        btn.addEventListener('click', async () => {
-          try { await scene.enterVR(); } catch(e) { console.warn(e); }
-          focusCanvas();
-        });
-        scene.addEventListener('enter-vr', focusCanvas);
-        scene.addEventListener('exit-vr',  focusCanvas);
-      });
-
-      AFRAME.registerComponent('raycaster-listener', {
-  init () {
-    const src = this.el.parentEl; // la caméra qui porte le raycaster
-    src.addEventListener('raycaster-intersection', e => {
-      console.log('[ray] intersections:', e.detail.intersections.length);
-    });
-  }
-});
-
-    </script>
-
-    <a-scene vr-mode-ui="enabled: true"
-             physics="gravity: -9.8"
-             shadow="type: pcfsoft"
-             background="color: #ECECEC"
-             autofocus-canvas>
-
-      <!-- Sol -->
-      <a-plane rotation="-90 0 0" width="12" height="12" color="#7BC8A4"
-               static-body shadow="receive:true"></a-plane>
-
-      <!-- Lumières -->
-      <a-entity light="type: ambient; intensity: 0.5"></a-entity>
-      <a-entity light="type: directional; intensity: 0.8; castShadow: true" position="1 4 2"></a-entity>
-
-      <!-- Objets grabbables (⚠️ composants, pas seulement classes) -->
-<!-- TABLE (plateau à 1m, 1.6x0.9 m) -->
-<a-box id="tableTop" position="0 1.25 -3" width="1.6" height="0.05" depth="0.9"
-       color="#8B5A2B" static-body shadow="cast:true;receive:true"></a-box>
-
-<!-- Pieds de table (optionnels, aussi statiques) -->
-<a-box position="-0.7 0.5 -3.35" width="0.08" height="1.5" depth="0.08" color="#6E4A20" static-body shadow></a-box>
-<a-box position=" 0.7 0.5 -3.35" width="0.08" height="1.5" depth="0.08" color="#6E4A20" static-body shadow></a-box>
-<a-box position="-0.7 0.5 -2.65" width="0.08" height="1.5" depth="0.08" color="#6E4A20" static-body shadow></a-box>
-<a-box position=" 0.7 0.5 -2.65" width="0.08" height="1.5" depth="0.08" color="#6E4A20" static-body shadow></a-box>
-
-<!-- Objets grabbables POSÉS SUR LA TABLE (y ≈ 1.1) -->
-<a-box position="-0.5 1.4 -3.1"
-       width="0.5" height="0.5" depth="0.5"
-       color="#4CC3D9"
-       class="grab-target"
-       grabbable dynamic-body hover-highlight auto-refresh-physics
-       shadow="cast:true;receive:true"></a-box>
-
-<a-sphere position="0.3 1.5 -3.2"
-          radius="0.35"
-          color="#EF2D5E"
-          class="grab-target"
-          grabbable dynamic-body hover-highlight auto-refresh-physics
-          shadow="cast:true;receive:true"></a-sphere>
-
-<a-box id="gun" position="0.7 1.33 -2.9"
-       width="0.12" height="0.07" depth="0.22"
-       color="#222"
-       class="grab-target"
-       grabbable dynamic-body hover-highlight auto-refresh-physics
-       shadow="cast:true;receive:true"></a-box>
-
-
-      <!-- Rig + caméra + mains -->
-<a-entity id="rig" position="0 0 3" dual-joystick-controls>
-
-  <!-- CAMÉRA : rayon, toggle-grab au clavier (F), look réactivé seulement en VR -->
-<a-entity id="cam" camera="near:0.1; far:100" position="0 1.6 0"
-          look-controls
-          look-only-in-vr
-          cursor="rayOrigin: entity; fuse: false"
-          raycaster="objects: .grab-target; far: 8; interval: 0; showLine: true"
-          ray-grab-desktop="key: KeyF"
-          debug-hand="hand: camera">
-  <!-- Réticule au centre -->
-  <a-entity id="reticle"
-            geometry="primitive: ring; radiusInner: 0.003; radiusOuter: 0.006"
-            material="color: #fff; shader: flat; opacity: 0.9"
-            position="0 0 -0.5"
-            visible="true"></a-entity>
-</a-entity>
-
-
-
-  <!-- Mains (prêtes pour un vrai casque) -->
-<a-entity id="left"
-  laser-controls="hand: left; model: false"
-  raycaster="objects: .grab-target; far: 3; interval: 0; showLine: true"
-  super-hands="colliderEvent: raycaster-intersection; colliderEventProperty: els;
-               grabStartButtons: triggerdown, gripdown;
-               grabEndButtons: triggerup, gripup">
-  <a-sphere radius="0.02" color="#39f" position="0 0 -0.05"></a-sphere>
-</a-entity>
-
-<a-entity id="right"
-  laser-controls="hand: right; model: false"
-  raycaster="objects: .grab-target; far: 3; interval: 0; showLine: true"
-  super-hands="colliderEvent: raycaster-intersection; colliderEventProperty: els;
-               grabStartButtons: triggerdown, gripdown;
-               grabEndButtons: triggerup, gripup">
-  <a-sphere radius="0.02" color="#f93" position="0 0 -0.05"></a-sphere>
-</a-entity>
-
-</a-entity>
-
-    </a-scene>
-  </body>
+  </a-scene>
+</body>
 </html>
