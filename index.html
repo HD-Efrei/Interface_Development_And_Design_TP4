@@ -47,8 +47,7 @@
         const rig=rigEl.object3D;
         const yaw = THREE.MathUtils.degToRad(rigEl.getAttribute('rotation').y);
         const cos=Math.cos(yaw), sin=Math.sin(yaw);
-        // >>> inversion fixée : "forward" suit la valeur du stick (avant ~ -1 -> on garde le signe natif)
-        const forward=this.vy;   // pousser vers l'avant (y ≈ -1) -> +1 en "forward"
+        const forward=this.vy;   // pousser vers l'avant :"forward"
         const strafe = this.vx;
         const step=this.data.speed*(dt/1000);
         const dx = (strafe*cos + forward*sin)*step;
