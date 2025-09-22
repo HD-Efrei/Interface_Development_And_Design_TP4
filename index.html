@@ -270,11 +270,6 @@ AFRAME.registerComponent('table-spawn', {
       'vr-grab-attach': '' // ← notre composant d’attache main (que tu as ajouté)
     };
 
-    // Table
-    <a-box id="tableTop" position="0 1.25 -3" width="1.6" height="0.05" depth="0.9"
-       color="#8B5A2B" static-body shadow="cast:true;receive:true"></a-box>
-
-
     // --- CUBE ---
     const cube = this._make('a-box', {
       ...common,
@@ -339,7 +334,12 @@ AFRAME.registerComponent('table-spawn', {
     <a-entity id="rig" position="0 1.6 3">
       <a-entity id="cam" camera look-controls wasd-controls="enabled:false"></a-entity>
 
-      <!-- MAIN GAUCHE : locomotion -->
+
+    // Table
+    <a-box id="tableTop" position="0 1.25 -3" width="1.6" height="0.05" depth="0.9"
+       color="#8B5A2B" static-body shadow="cast:true;receive:true"></a-box>
+
+
 <!-- GAUCHE -->
 <a-entity id="leftCtl"
   oculus-touch-controls="hand: left"
