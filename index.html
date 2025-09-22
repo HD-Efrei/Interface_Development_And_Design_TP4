@@ -1,39 +1,225 @@
-<html>
-  <head>
-    <!-- Inclusion des scripts A-Frame, extras, physics, super-hands (voir explications ci-dessus) -->
-    <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
-    <script> delete AFRAME.components['grabbable']; </script>
-    <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.5.2/dist/aframe-extras.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@c-frame/aframe-physics-system@4.1.0/dist/aframe-physics-system.min.js"></script>
-    <script src="https://unpkg.com/super-hands@3.0.5/dist/super-hands.min.js"></script>
-  </head>
-  <body>
-    <!-- Scène A-Frame avec la physique activée (gravité) -->
-    <a-scene physics="gravity: -9.8; debug: false">
-      
-      <!-- Rig de caméra + contrôleurs -->
-      <a-entity id="rig">
-        <!-- Caméra (yeux du joueur) à ~1.6 m de haut -->
-        <a-camera position="0 1.6 0"></a-camera>
-        <!-- Contrôleur main gauche avec super-hands (+ détection collisions sphériques des objets ciblés) -->
-        <a-entity sphere-collider="objects: .grab-target" super-hands hand-controls="hand: left"></a-entity>
-        <!-- Contrôleur main droite avec super-hands -->
-        <a-entity sphere-collider="objects: .grab-target" super-hands hand-controls="hand: right"></a-entity>
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VR Grab + Spawn + Surbrillance (A-Frame 1.7.0)</title>
+
+  <!-- A-Frame 1.7.0 -->
+  <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
+
+  <!-- éviter le conflit de nom "grabbable" (super-hands) -->
+  <script> if (AFRAME.components && AFRAME.components['grabbable']) { delete AFRAME.components['grabbable']; } </script>
+
+  <!-- aframe-extras (sphere-collider; on n’utilise PAS movement-controls ici) -->
+  <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.5.2/dist/aframe-extras.min.js"></script>
+
+  <!-- Physics system (CANNON/Ammo) -->
+  <script src="https://cdn.jsdelivr.net/npm/@c-frame/aframe-physics-system@4.1.0/dist/aframe-physics-system.min.js"></script>
+
+  <!-- super-hands 3.x -->
+  <script src="https://unpkg.com/super-hands@3.0.5/dist/super-hands.min.js"></script>
+
+  <style>
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    .overlay {
+      position: fixed; left: 12px; top: 12px; z-index: 9;
+      background: rgba(0,0,0,.55); color:#fff; padding:10px 12px; border-radius:10px;
+      font-size:14px; line-height:1.35;
+    }
+    .overlay kbd { background:#222; padding:2px 6px; border-radius:6px; }
+  </style>
+
+  <script>
+    // Déplacement analogique au stick GAUCHE (translate le rig en XZ)
+    AFRAME.registerComponent('thumb-move', {
+      schema: { rig: {type:'selector'}, speed: {default: 1.6}, dead: {default: 0.18} },
+      init() {
+        this.x = 0; this.y = 0;
+        this.el.addEventListener('axismove', e => {
+          if (!e.detail || !Array.isArray(e.detail.axis)) return;
+          this.x = e.detail.axis[0] || 0;   // gauche/droite
+          this.y = e.detail.axis[1] || 0;   // avant/arrière (avant ≈ -1 sur Quest)
+        });
+      },
+      tick(t, dt) {
+        const rigEl = this.data.rig; if (!rigEl) return;
+        const rig = rigEl.object3D;
+        const dead = this.data.dead;
+        const ax = Math.abs(this.x) > dead ? this.x : 0;
+        const ay = Math.abs(this.y) > dead ? this.y : 0;
+        if (!ax && !ay) return;
+
+        // Déplacement relatif au Yaw du rig
+        const yaw = THREE.MathUtils.degToRad(rigEl.getAttribute('rotation').y);
+        const cos = Math.cos(yaw), sin = Math.sin(yaw);
+
+        const forward = -ay; // pousser stick vers l'avant => valeur négative, on inverse
+        const strafe  =  ax;
+
+        const step = this.data.speed * (dt/1000);
+        const dx = (strafe * cos + forward * sin) * step;
+        const dz = (forward * cos - strafe * sin) * step;
+
+        rig.position.x += dx;
+        rig.position.z += dz;
+      }
+    });
+
+    // Snap-turn au stick DROIT (paliers)
+    AFRAME.registerComponent('snap-turn', {
+      schema: { rig: {type:'selector'}, stepDeg: {default: 30}, threshold: {default: 0.6}, cooldownMs: {default: 220} },
+      init() {
+        this.stickX = 0; this.last = 0;
+        this.el.addEventListener('axismove', e => {
+          if (!e.detail || !Array.isArray(e.detail.axis)) return;
+          this.stickX = e.detail.axis[0] || 0; // horizontal
+        });
+      },
+      tick(t) {
+        const rig = this.data.rig; if (!rig) return;
+        const now = t || performance.now();
+        if (now - this.last < this.data.cooldownMs) return;
+        const x = this.stickX;
+
+        if (x > this.data.threshold) { this.turn(-this.data.stepDeg); this.last = now; }
+        else if (x < -this.data.threshold) { this.turn(this.data.stepDeg); this.last = now; }
+      },
+      turn(d) {
+        const rot = this.data.rig.getAttribute('rotation');
+        rot.y += d; this.data.rig.setAttribute('rotation', rot);
+      }
+    });
+
+    // Surbrillance (scale + émissif) pilotée par les events super-hands: hover-start/hover-end
+    AFRAME.registerComponent('hover-highlight', {
+      schema: { scale: {default: 1.06}, emissive: {default:'#ffffff'}, intensity:{default:0.45} },
+      init() {
+        const el = this.el;
+        this._s0 = el.object3D.scale.clone();
+        const mesh = () => { const m = el.getObject3D('mesh'); return m ? (Array.isArray(m.material)?m.material[0]:m.material):null; };
+        this._mat = mesh();
+        this._e0 = (this._mat && this._mat.emissive) ? this._mat.emissive.clone() : null;
+        this._i0 = (this._mat && 'emissiveIntensity' in this._mat) ? this._mat.emissiveIntensity : 0;
+
+        el.addEventListener('hover-start',  () => this.set(true));
+        el.addEventListener('hover-end',    () => this.set(false));
+        el.addEventListener('grab-start',   () => this.set(true));
+        el.addEventListener('grab-end',     () => this.set(false));
+      },
+      set(on){
+        const el = this.el;
+        el.object3D.scale.setScalar(on ? this.data.scale : this._s0.x);
+        if (this._mat){
+          if (on){
+            (this._mat.emissive|| (this._mat.emissive=new THREE.Color(this.data.emissive))).set(this.data.emissive);
+            this._mat.emissiveIntensity = this.data.intensity;
+          } else {
+            if (this._e0) this._mat.emissive.copy(this._e0);
+            this._mat.emissiveIntensity = this._i0;
+          }
+          this._mat.needsUpdate = true;
+        }
+      }
+    });
+
+    // Spawner: crée un box/sphere dynamique devant la caméra (A-button ou touche N)
+    AFRAME.registerComponent('spawner', {
+      schema:{ camera:{type:'selector'} },
+      init(){
+        this.spawn = this.spawn.bind(this);
+        window.addEventListener('keydown', e => { if (e.key.toLowerCase()==='n') this.spawn(); });
+        // manette droite (A-button)
+        this.el.addEventListener('abuttondown', this.spawn);
+        // spawn 3 objets au démarrage
+        setTimeout(()=>{ this.spawn(); this.spawn(); this.spawn(); }, 500);
+      },
+      spawn(){
+        const camEl = this.data.camera; if (!camEl) return;
+        const cam = camEl.object3D;
+        const dir = new THREE.Vector3(); cam.getWorldDirection(dir); dir.y = 0; dir.normalize();
+
+        // position de spawn — 1.2 m devant la caméra, 1.3 m de haut
+        const origin = camEl.object3D.getWorldPosition(new THREE.Vector3());
+        const pos = origin.clone().add(dir.multiplyScalar(1.2)); pos.y = 1.3;
+
+        // box ou sphere aléatoire
+        const isBox = Math.random() < 0.5;
+        const el = document.createElement(isBox ? 'a-box' : 'a-sphere');
+        el.className = 'grabbable hoverable grab-target';
+
+        if (isBox){
+          el.setAttribute('width', 0.45);
+          el.setAttribute('height', 0.45);
+          el.setAttribute('depth', 0.45);
+        } else {
+          el.setAttribute('radius', 0.28);
+        }
+
+        const col = '#'+(Math.random()*0xFFFFFF|0).toString(16).padStart(6,'0');
+        el.setAttribute('color', col);
+        el.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
+        el.setAttribute('material', 'roughness:0.5; metalness:0.05');
+
+        // interactions + physique
+        el.setAttribute('hover-highlight', '');
+        el.setAttribute('hoverable', '');
+        el.setAttribute('grabbable', '');
+        el.setAttribute('draggable', '');
+        el.setAttribute('dynamic-body', 'mass:1');
+
+        document.querySelector('a-scene').appendChild(el);
+      }
+    });
+  </script>
+</head>
+
+<body>
+  <div class="overlay">
+    <strong>Commandes</strong><br/>
+    🧭 Stick gauche : déplacer • 🔁 Stick droit : snap-turn (30°)<br/>
+    🤏 Gâchettes : grab / drop • 🎯 Viser = surbrillance<br/>
+    ➕ Spawn objet : <kbd>N</kbd> (clavier) ou bouton <b>A</b> (manette droite)
+  </div>
+
+  <a-scene
+    background="color:#20252b"
+    renderer="colorManagement:true; physicallyCorrectLights:true; antialias:true; sortTransparentObjects:true"
+    shadow="type:pcfsoft"
+    physics="gravity:-9.8; debug:false"
+    vr-mode-ui="enabled:true"
+  >
+    <!-- lumières -->
+    <a-entity light="type:ambient; intensity:0.35; color:#ffffff"></a-entity>
+    <a-entity light="type:directional; intensity:1; castShadow:true" position="2 6 3" rotation="-45 30 0"></a-entity>
+
+    <!-- sol -->
+    <a-plane rotation="-90 0 0" width="30" height="30"
+             color="#3c424a" material="roughness:1; metalness:0"
+             shadow="receive:true" static-body></a-plane>
+
+    <!-- RIG + caméra -->
+    <a-entity id="rig" position="0 1.6 3">
+      <a-entity id="cam" camera look-controls wasd-controls="enabled:false"></a-entity>
+
+      <!-- MAIN GAUCHE : laser par défaut + déplacement stick gauche + grab proche (collider) & distance (ray) -->
+      <a-entity id="left"
+                laser-controls="hand: left"
+                super-hands
+                thumb-move="rig:#rig; speed:1.6; dead:0.18"
+                sphere-collider="objects:.grab-target">
       </a-entity>
-      
-      <!-- Objet à saisir : un cube placé en face de la caméra -->
-      <a-box class="grab-target" color="#4CC3D9" position="0 1 -2" 
-             hoverable grabbable draggable dynamic-body></a-box>
-             <!-- hoverable: optionnel (changement visuel au survol), 
-                  grabbable: rend saisissable, 
-                  draggable: permet le drag-drop, 
-                  dynamic-body: corps physique (gravité, collisions) -->
-      
-      <!-- Sol horizontal pour récupérer les objets lâchés -->
-      <a-plane color="#7BC8A4" rotation="-90 0 0" width="10" height="10" 
-               static-body position="0 0 0"></a-plane>
-               <!-- static-body: le sol est fixe (collision avec corps dynamiques) -->
-      
-    </a-scene>
-  </body>
+
+      <!-- MAIN DROITE : laser par défaut + snap-turn stick droit + spawner -->
+      <a-entity id="right"
+                laser-controls="hand: right"
+                super-hands
+                snap-turn="rig:#rig; stepDeg:30; threshold:0.6; cooldownMs:220"
+                spawner="camera:#cam">
+      </a-entity>
+    </a-entity>
+
+    <a-sky color="#1b2026"></a-sky>
+  </a-scene>
+</body>
 </html>
