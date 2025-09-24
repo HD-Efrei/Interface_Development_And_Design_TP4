@@ -746,90 +746,6 @@ AFRAME.registerComponent('target-hit', {
 });
 
 
-/** Spawner de cibles : maintient jusqu'à N cibles actives, spawn périodiquement à des positions aléatoires */
-AFRAME.registerComponent('spawn-targets', {
-  schema: {
-    intervalMs: {default: 2000},
-    maxActive:  {default: 5},
-
-    // centre du cercle
-    centerX: {default: 0},
-    centerZ: {default: -2},
-
-    // anneau de spawn (mètres)
-    radiusMin: {default: 6},
-    radiusMax: {default: 10},
-
-    // hauteur moyenne + variation verticale
-    baseY:    {default: 4.0},
-    yJitter:  {default: 0.6},
-
-    // facteur d’échelle global des cibles
-    targetScale: {default: 1.8}
-  },
-
-  init(){
-    this._timer = setInterval(()=> this._tickSpawn(), this.data.intervalMs);
-  },
-  remove(){ clearInterval(this._timer); },
-  _activeCount(){ return this.el.sceneEl.querySelectorAll('.target').length; },
-  _rand(a,b){ return a + Math.random()*(b-a); },
-
-  _makeTarget(){
-    const d = this.data;
-    const scene = this.el.sceneEl;
-
-    // angle + rayon (uniforme sur l’anneau)
-    const theta = this._rand(0, Math.PI*2);
-    const r     = this._rand(d.radiusMin, d.radiusMax);
-    const x     = d.centerX + Math.cos(theta) * r;
-    const z     = d.centerZ + Math.sin(theta) * r;
-    const y     = d.baseY + this._rand(-d.yJitter, d.yJitter);
-
-    // géométrie (grossie)
-    const isBox = Math.random() < 0.6;
-    const el    = document.createElement(isBox ? 'a-box' : 'a-cone');
-
-    const S = d.targetScale; // facteur d’échelle global
-    if (isBox){
-      const s = this._rand(0.6, 1.0) * S;
-      el.setAttribute('width',  s);
-      el.setAttribute('height', s);
-      el.setAttribute('depth',  s);
-    } else {
-      el.setAttribute('radius-bottom', this._rand(0.45, 0.7) * S);
-      el.setAttribute('height',        this._rand(0.7,  1.1) * S);
-    }
-
-    el.setAttribute('position', `${x} ${y} ${z}`);
-    el.setAttribute('color', '#'+(Math.random()*0xFFFFFF|0).toString(16).padStart(6,'0'));
-    el.setAttribute('material','roughness:0.6; metalness:0.05');
-    el.setAttribute('shadow','cast:true; receive:true');
-
-    // on garde de la physique mais pas de masse pour que les cibles ne tombent pas
-    el.setAttribute('dynamic-body','mass:0');
-
-    // tags + hit
-    el.classList.add('target','grab-target');
-    el.setAttribute('mark-held','');
-    el.setAttribute('target-hit','volume:0.65');
-
-    scene.appendChild(el);
-  },
-
-  _tickSpawn(){
-    if (this._activeCount() >= this.data.maxActive) return;
-    this._makeTarget();
-
-    // refresh raycasters
-    setTimeout(() => {
-      this.el.sceneEl.querySelectorAll('[raycaster]').forEach(n=>{
-        const rc = n.components.raycaster;
-        rc && rc.refreshObjects && rc.refreshObjects();
-      });
-    }, 0);
-  }
-});
 
 
 
@@ -893,17 +809,178 @@ AFRAME.registerComponent('one-shot-burst', {
 
 
 
+
+
+// --- Oscillation simple d'une cible ---
+AFRAME.registerComponent('target-oscillate', {
+  schema: {
+    mode:   {default:'vertical'},     // 'vertical' | 'horizontal'
+    amp:    {default:0.7},            // amplitude (m)
+    speed:  {default:0.6},            // Hz environ
+    phase:  {default:0},              // déphasage initial (rad)
+    axis:   {type:'vec3', default:{x:1,y:0,z:0}} // utilisé si 'horizontal'
+  },
+  init(){
+    this._t0 = performance.now()/1000;
+    this._base = this.el.object3D.position.clone();
+  },
+  tick(){
+    const t = performance.now()/1000 - this._t0;
+    const s = Math.sin( (2*Math.PI*this.data.speed)*t + this.data.phase ) * this.data.amp;
+    const p = this._base.clone();
+    if (this.data.mode === 'vertical') {
+      p.y += s;
+    } else {
+      // déplacement sur un seul axe horizontal (x/z) selon axis fourni
+      p.x += this.data.axis.x * s;
+      p.z += this.data.axis.z * s;
+    }
+    this.el.object3D.position.copy(p);
+  }
+});
+
+// Spawner de cibles en anneau
+AFRAME.registerComponent('spawn-targets', {
+  schema: {
+    intervalMs: {default: 2000},
+    maxActive:  {default: 6},
+
+    // anneau de spawn autour du centre
+    centerX: {default: 0}, centerZ: {default: -1.6},
+    radiusMin: {default: 12}, radiusMax: {default: 18},
+
+    // hauteur & dispersion
+    baseY: {default: 4.2}, yJitter:{default: 0.6},
+
+    // taille moyenne des cibles
+    targetScale: {default: 3.0},
+
+    // anti-collisions entre cibles
+    minSeparation: {default: 2.2},   // distance minimale entre centres
+    maxTries:      {default: 16},    // nombre d’essais pour trouver une place libre
+
+    // oscillation
+    oscAmpV:   {default: 0.7},       // amplitude verticale
+    oscAmpH:   {default: 1.1},       // amplitude horizontale
+    oscSpeedMin:{default:0.35},
+    oscSpeedMax:{default:0.75}
+  },
+
+  init(){
+    this._timer = setInterval(()=> this._tickSpawn(), this.data.intervalMs);
+  },
+  remove(){ clearInterval(this._timer); },
+
+  _activeTargets(){ return [...this.el.sceneEl.querySelectorAll('.target')]; },
+
+  _rand(a,b){ return a + Math.random()*(b-a); },
+
+  _samplePos(){
+    // anneau [radiusMin, radiusMax]
+    const a = this._rand(0, Math.PI*2);
+    const r = this._rand(this.data.radiusMin, this.data.radiusMax);
+    const x = this.data.centerX + Math.cos(a)*r;
+    const z = this.data.centerZ + Math.sin(a)*r;
+    const y = this.data.baseY + this._rand(-this.data.yJitter, this.data.yJitter);
+    return new THREE.Vector3(x,y,z);
+  },
+
+  _isFarEnough(pos){
+    const min2 = this.data.minSeparation * this.data.minSeparation;
+    for (const t of this._activeTargets()){
+      const wp = t.object3D.getWorldPosition(new THREE.Vector3());
+      if (wp.distanceToSquared(pos) < min2) return false;
+    }
+    return true;
+  },
+
+  _makeTarget(){
+    const scene = this.el.sceneEl;
+
+    // trouve une position valide
+    let pos = null;
+    for (let i=0;i<this.data.maxTries;i++){
+      const p = this._samplePos();
+      if (this._isFarEnough(p)){ pos = p; break; }
+    }
+    if (!pos) return; // renonce si aucune place trouvée
+
+    // géométrie : box ou cône
+    const isBox = Math.random()<0.6;
+    const el = document.createElement(isBox ? 'a-box' : 'a-cone');
+
+    // taille en fonction de targetScale
+    const s = this.data.targetScale;
+    if (isBox){
+      el.setAttribute('width',  0.28*s);
+      el.setAttribute('height', 0.28*s);
+      el.setAttribute('depth',  0.28*s);
+    } else {
+      el.setAttribute('radius-bottom', 0.20*s);
+      el.setAttribute('height',        0.35*s);
+    }
+
+    el.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
+    el.setAttribute('color', '#'+(Math.random()*0xFFFFFF|0).toString(16).padStart(6,'0'));
+    el.setAttribute('material','roughness:0.6; metalness:0.05');
+    el.setAttribute('shadow','cast:true; receive:true');
+
+    // pas de physique (elles restent en l’air) —> pas de dynamic-body
+    el.classList.add('target','grab-target');
+
+    // collision -> son + effet + despawn (tu as déjà le composant target-hit)
+    el.setAttribute('target-hit','volume:0.7');
+
+    // oscillation : vertical OU horizontal au hasard
+    const vertical = Math.random()<0.5;
+    const speed = this._rand(this.data.oscSpeedMin, this.data.oscSpeedMax);
+    if (vertical){
+      el.setAttribute('target-oscillate', `mode:vertical; amp:${this.data.oscAmpV}; speed:${speed}; phase:${this._rand(0,Math.PI*2)}`);
+    } else {
+      // axe horizontal aléatoire : X ou Z
+      const useX = Math.random()<0.5 ? 1 : 0;
+      const axis = useX ? '1 0 0' : '0 0 1';
+      el.setAttribute('target-oscillate', `mode:horizontal; amp:${this.data.oscAmpH}; speed:${speed}; phase:${this._rand(0,Math.PI*2)}; axis:${axis}`);
+    }
+
+    scene.appendChild(el);
+  },
+
+  _tickSpawn(){
+    if (this._activeTargets().length >= this.data.maxActive) return;
+    this._makeTarget();
+
+    // refresh des raycasters, comme d’hab’
+    setTimeout(()=>{
+      this.el.sceneEl.querySelectorAll('[raycaster]').forEach(n=>{
+        const rc=n.components.raycaster;
+        rc && rc.refreshObjects && rc.refreshObjects();
+      });
+    },0);
+  }
+});
+
+
+
+
 </script>
 
 
 </head>
 <body>
   <div class="overlay">
-    <strong>Commandes Quest</strong><br/>
-    Stick gauche : se déplacer (avant/arrière corrigé) • Stick droit : rotation <b>lisse</b><br/>
-    Lasers par défaut depuis chaque manette • Trigger : grab / drop<br/>
-    Spawn objet : bouton <b>A</b> (droite) ou <kbd>N</kbd> (clavier)
-  </div>
+  <strong>Commandes VR</strong><br>
+  <u>(Quest)</u><br>
+  • <b>Stick gauche</b> : Déplacement<br>
+  • <b>Stick droit</b> : Rotation<br>
+  • <b>Laser</b> : Viser &nbsp;•&nbsp; <b>Grip</b> : Saisir / Lâcher<br>
+  • <b>Trigger</b> (si pistolet saisi) : Tirer<br>
+  • <b>A</b> (manette droite) : Faire apparaître un objet devant vous<br>
+  • <b>B</b> (manette droite) : Respawn table + objets<br>
+  <u>Clavier</u><br>
+  • <kbd>N</kbd> : Faire apparaître un objet &nbsp;•&nbsp; <kbd>E</kbd> : Saisir / Lâcher l’objet visé<br>
+  Astuce : Changez de page via les boutons en haut à droite (avant d’entrer en VR).
+</div>
 
 
 
