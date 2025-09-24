@@ -236,7 +236,7 @@ let table = document.getElementById(this.data.tableId);
     ...common,
     'mark-held': '',
     position: `${tPos.x + 1.8} ${topY + 0.25} ${tPos.z + 0.2}`,
-    rotation: `0 180 0`,
+    rotation: `0 0 0`,
     scale: `0.8 0.8 0.8`,
     'gltf-model': '#pistolModel',
     'gun-shoot': 'bulletSpeed:48; mass:0.01; radius:0.05; muzzle: 0 0 -0.40'
@@ -459,14 +459,20 @@ AFRAME.registerComponent('mark-held', {
   init(){
     this._onGrabStart = () => this.el.classList.add('held');
     this._onGrabEnd   = () => this.el.classList.remove('held');
+    this._onStateRemoved = (e)=>{
+      if (e.detail === 'grabbed') this.el.classList.remove('held');
+    };
     this.el.addEventListener('grab-start', this._onGrabStart);
     this.el.addEventListener('grab-end',   this._onGrabEnd);
+    this.el.addEventListener('stateremoved', this._onStateRemoved);
   },
   remove(){
     this.el.removeEventListener('grab-start', this._onGrabStart);
     this.el.removeEventListener('grab-end',   this._onGrabEnd);
+    this.el.removeEventListener('stateremoved', this._onStateRemoved);
   }
 });
+
 
 
 
@@ -537,6 +543,7 @@ AFRAME.registerComponent('gun-shoot', {
     const b = document.createElement('a-sphere');
     b.classList.add('bullet');
     b.setAttribute('radius', this.data.radius);
+    b.setAttribute('bullet-sweep', `radius:${this.data.radius}`);
     b.setAttribute('color', '#ffd18b');
     b.setAttribute('material', 'emissive:#ffbb55; metalness:0.1; roughness:0.2');
     b.setAttribute('position', `${spawn.x} ${spawn.y} ${spawn.z}`);
@@ -585,6 +592,52 @@ AFRAME.registerComponent('gun-shoot', {
 
     // auto-destruction
     setTimeout(() => b.parentNode && b.parentNode.removeChild(b), this.data.bulletLife);
+  }
+});
+
+
+
+
+// Détection par balayage entre deux frames pour balles rapides
+AFRAME.registerComponent('bullet-sweep', {
+  schema:{ radius:{default:0.05} },
+  init(){
+    this._prev = new THREE.Vector3();
+    this._curr = new THREE.Vector3();
+    this._ray  = new THREE.Raycaster();
+    this.el.object3D.getWorldPosition(this._prev);
+  },
+  tick(){
+    const o = this.el.object3D;
+    o.getWorldPosition(this._curr);
+    const delta = this._curr.clone().sub(this._prev);
+    const dist  = delta.length();
+    if (dist > 0){
+      const dir = delta.clone().normalize();
+      this._ray.set(this._prev, dir);
+      this._ray.far = dist + this.data.radius*1.2;
+
+      // on teste contre tous les meshes des cibles
+      const meshes = [];
+      this.el.sceneEl.querySelectorAll('.target').forEach(t=>{
+        const m = t.getObject3D('mesh'); if (m) meshes.push(m);
+      });
+      const hits = this._ray.intersectObjects(meshes, true);
+      if (hits.length){
+        // retrouve l'entity de la cible touchée
+        let obj = hits[0].object;
+        while (obj && !obj.el) obj = obj.parent;
+        const targetEl = obj && obj.el;
+        if (targetEl){
+          // déclenche le même pipeline que la physique
+          targetEl.emit('collide', {body:{el:this.el}}, false);
+          // supprime la balle
+          this.el.parentNode && this.el.parentNode.removeChild(this.el);
+          return;
+        }
+      }
+    }
+    this._prev.copy(this._curr);
   }
 });
 
