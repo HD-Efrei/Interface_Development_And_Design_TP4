@@ -448,37 +448,6 @@ AFRAME.registerComponent('desktop-grab-keys', {
 });
 
 
-
-// Marque un objet comme "tenu" pendant le grab pour l'exclure du raycaster
-AFRAME.registerComponent('mark-held', {
-  init(){
-    this._onGrabStart = () => {
-      this.el.classList.add('held');
-      // refresh des raycasters pour prendre en compte :not(.held)
-      this._refreshRaycasters();
-    };
-    this._onGrabEnd = () => {
-      this.el.classList.remove('held');
-      this._refreshRaycasters();
-    };
-    this.el.addEventListener('grab-start', this._onGrabStart);
-    this.el.addEventListener('grab-end',   this._onGrabEnd);
-  },
-  remove(){
-    this.el.removeEventListener('grab-start', this._onGrabStart);
-    this.el.removeEventListener('grab-end',   this._onGrabEnd);
-  },
-  _refreshRaycasters(){
-    this.el.sceneEl.querySelectorAll('[raycaster]').forEach(n=>{
-      const rc = n.components.raycaster;
-      if (rc && rc.refreshObjects) rc.refreshObjects();
-    });
-  }
-});
-
-
-
-
 // --- GUN: tire une balle physique quand on appuie sur la gâchette en tenant l'arme ---
 AFRAME.registerComponent('gun-shoot', {
   schema: {
@@ -653,9 +622,8 @@ AFRAME.registerComponent('target-hit', {
   p.setAttribute('position', `${wp.x} ${wp.y} ${wp.z}`);
   p.setAttribute('one-shot-burst', 'count:160; life:650; speed:1.8; spread:1.3; size:0.055');
   scene.appendChild(p);
-},
-
-
+}
+,
 
   // --- Effet "SHATTER" (petits fragments physiques) ---
   _spawnDebris(){
@@ -881,7 +849,7 @@ AFRAME.registerComponent('one-shot-burst', {
   oculus-touch-controls="hand: left"
   left-stick-move="rig:#rig; speed:2.2; dead:0.18"
   laser-controls="hand: left"
-  raycaster="objects:.grab-target:not(.held); showLine:true; far:8; interval:0"
+  raycaster="objects:.grab-target; showLine:true; far:8; interval:0"
   laser-hover
   raycast-collider-proxy
   static-body="shape: sphere; sphereRadius: 0.04"
@@ -899,7 +867,7 @@ AFRAME.registerComponent('one-shot-burst', {
   oculus-touch-controls="hand: right"
   right-stick-smoothturn="rig:#rig; speedDeg:140; dead:0.18"
   laser-controls="hand: right"
-  raycaster="objects:.grab-target:not(.held); showLine:true; far:8; interval:0"
+  raycaster="objects:.grab-target; showLine:true; far:8; interval:0"
   laser-hover
   raycast-collider-proxy
   static-body="shape: sphere; sphereRadius: 0.04"
