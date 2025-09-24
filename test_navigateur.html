@@ -695,9 +695,10 @@ AFRAME.registerComponent('target-hit', {
   const wp = otherEl.object3D.getWorldPosition(new THREE.Vector3());
   const p = document.createElement('a-entity');
   p.setAttribute('position', `${wp.x} ${wp.y} ${wp.z}`);
-  p.setAttribute('one-shot-burst', 'count:160; life:650; speed:1.8; spread:1.3; size:0.055');
+  p.setAttribute('one-shot-burst', '');
   scene.appendChild(p);
-},
+}
+,
 
 
 
@@ -709,7 +710,7 @@ AFRAME.registerComponent('target-hit', {
     const quat = this.el.object3D.getWorldQuaternion(new THREE.Quaternion());
 
     const FRAG_N = 12;          // nombre de morceaux
-    const FRAG_S = 0.08;        // taille (≈ 8 cm)
+    const FRAG_S = 0.08;        // taille
     const LIFE   = 1800;        // durée de vie (ms)
     const MASS   = 0.04;        // masse
 
@@ -750,70 +751,81 @@ AFRAME.registerComponent('spawn-targets', {
   schema: {
     intervalMs: {default: 2000},
     maxActive:  {default: 5},
-    // zone XZ (en mètres) où placer les cibles
-    minX: {default: -3}, maxX: {default: 3},
-    minZ: {default: -4}, maxZ: {default: -1.0},
-    baseY:{default: 2.9} // au-dessus de ta table (~2.7) pour être bien visible
+
+    // centre du cercle
+    centerX: {default: 0},
+    centerZ: {default: -2},
+
+    // anneau de spawn (mètres)
+    radiusMin: {default: 6},
+    radiusMax: {default: 10},
+
+    // hauteur moyenne + variation verticale
+    baseY:    {default: 4.0},
+    yJitter:  {default: 0.6},
+
+    // facteur d’échelle global des cibles
+    targetScale: {default: 1.8}
   },
+
   init(){
     this._timer = setInterval(()=> this._tickSpawn(), this.data.intervalMs);
   },
-  remove(){
-    clearInterval(this._timer);
-  },
-  _activeCount(){
-    return this.el.sceneEl.querySelectorAll('.target').length;
-  },
+  remove(){ clearInterval(this._timer); },
+  _activeCount(){ return this.el.sceneEl.querySelectorAll('.target').length; },
   _rand(a,b){ return a + Math.random()*(b-a); },
-  _makeTarget(){
-    const scene = this.el.sceneEl;
-    const isBox = Math.random() < 0.6; // box/cone
-    const el = document.createElement(isBox ? 'a-box' : 'a-cone');
 
-    // petite taille aléatoire
+  _makeTarget(){
+    const d = this.data;
+    const scene = this.el.sceneEl;
+
+    // angle + rayon (uniforme sur l’anneau)
+    const theta = this._rand(0, Math.PI*2);
+    const r     = this._rand(d.radiusMin, d.radiusMax);
+    const x     = d.centerX + Math.cos(theta) * r;
+    const z     = d.centerZ + Math.sin(theta) * r;
+    const y     = d.baseY + this._rand(-d.yJitter, d.yJitter);
+
+    // géométrie (grossie)
+    const isBox = Math.random() < 0.6;
+    const el    = document.createElement(isBox ? 'a-box' : 'a-cone');
+
+    const S = d.targetScale; // facteur d’échelle global
     if (isBox){
-      const s = this._rand(0.35, 0.6);
-      el.setAttribute('width', s);
+      const s = this._rand(0.6, 1.0) * S;
+      el.setAttribute('width',  s);
       el.setAttribute('height', s);
-      el.setAttribute('depth', s);
+      el.setAttribute('depth',  s);
     } else {
-      el.setAttribute('radius-bottom', this._rand(0.25, 0.4));
-      el.setAttribute('height', this._rand(0.45, 0.65));
+      el.setAttribute('radius-bottom', this._rand(0.45, 0.7) * S);
+      el.setAttribute('height',        this._rand(0.7,  1.1) * S);
     }
 
-    // position aléatoire dans la zone
-    const x = this._rand(this.data.minX, this.data.maxX);
-    const z = this._rand(this.data.minZ, this.data.maxZ);
-    const y = this.data.baseY + this._rand(0, 0.4);
     el.setAttribute('position', `${x} ${y} ${z}`);
-
-    // visuel
     el.setAttribute('color', '#'+(Math.random()*0xFFFFFF|0).toString(16).padStart(6,'0'));
     el.setAttribute('material','roughness:0.6; metalness:0.05');
     el.setAttribute('shadow','cast:true; receive:true');
 
-    // physique : qu'elles puissent tomber / se faire pousser
-    el.setAttribute('dynamic-body','mass:1');
+    // on garde de la physique mais pas de masse pour que les cibles ne tombent pas
+    el.setAttribute('dynamic-body','mass:0');
 
-    // balises
-    el.classList.add('target', 'grab-target'); // grab-target pour les raycasters existants
-
+    // tags + hit
+    el.classList.add('target','grab-target');
     el.setAttribute('mark-held','');
-
-    // collision -> son + particules + despawn
     el.setAttribute('target-hit','volume:0.65');
 
     scene.appendChild(el);
   },
+
   _tickSpawn(){
     if (this._activeCount() >= this.data.maxActive) return;
     this._makeTarget();
 
-    // petit refresh des raycasters (même routine que tu as déjà)
+    // refresh raycasters
     setTimeout(() => {
-      this.el.sceneEl.querySelectorAll('[raycaster]').forEach(n => {
+      this.el.sceneEl.querySelectorAll('[raycaster]').forEach(n=>{
         const rc = n.components.raycaster;
-        if (rc && rc.refreshObjects) rc.refreshObjects();
+        rc && rc.refreshObjects && rc.refreshObjects();
       });
     }, 0);
   }
@@ -822,12 +834,14 @@ AFRAME.registerComponent('spawn-targets', {
 
 
 
-// Petit burst de particules en THREE.Points, auto-destroy
+// Burst de particules en THREE.Points, auto-destroy
 AFRAME.registerComponent('one-shot-burst', {
   schema:{
-    count:{default:160}, life:{default:650},
-    speed:{default:1.6}, spread:{default:1.3},
-    size:{default:0.06}
+    count:{default:320},  // nombre de particules
+    life:{default:800},   // temps de vie
+    speed:{default:2.6},  // rayon + vitesse initiale
+    spread:{default:2.0}, // taille du cône
+    size:{default:0.08}   // taille des particules
   },
   init(){
     const n = this.data.count;
@@ -969,7 +983,6 @@ AFRAME.registerComponent('one-shot-burst', {
   left-stick-move="rig:#rig; speed:2.2; dead:0.18"
   laser-controls="hand: left"
   raycaster="objects:.grab-target:not(.held); showLine:true; far:8; interval:0"
-  laser-hover
   grip-gate-by-ray=""
   raycast-collider-proxy
   static-body="shape: sphere; sphereRadius: 0.04"
@@ -989,7 +1002,6 @@ AFRAME.registerComponent('one-shot-burst', {
   right-stick-smoothturn="rig:#rig; speedDeg:140; dead:0.18"
   laser-controls="hand: right"
   raycaster="objects:.grab-target:not(.held); showLine:true; far:8; interval:0"
-  laser-hover
   grip-gate-by-ray=""
   raycast-collider-proxy
   static-body="shape: sphere; sphereRadius: 0.04"
@@ -1011,17 +1023,17 @@ AFRAME.registerComponent('one-shot-burst', {
 
 <!-- TABLE -->
 <a-box id="tableTop"
-       position="0 1.2 -1.6"
+       position="0 2.7 -1.6"
        width="5" height="0.14" depth="2.8"
        color="#8B5A2B"
        static-body
        shadow="cast:true;receive:true"></a-box>
 
-<!-- Pieds adaptés -->
-<a-box position="-2.35 0.6 -2.9" width="0.14" height="1.2" depth="0.14" color="#6E4A20" static-body shadow></a-box>
-<a-box position=" 2.35 0.6 -2.9" width="0.14" height="1.2" depth="0.14" color="#6E4A20" static-body shadow></a-box>
-<a-box position="-2.35 0.6 -0.3" width="0.14" height="1.2" depth="0.14" color="#6E4A20" static-body shadow></a-box>
-<a-box position=" 2.35 0.6 -0.3" width="0.14" height="1.2" depth="0.14" color="#6E4A20" static-body shadow></a-box>
+<!-- Pieds relevés -->
+<a-box position="-2.35 1.35 -2.9" width="0.14" height="2.7" depth="0.14" color="#6E4A20" static-body shadow></a-box>
+<a-box position=" 2.35 1.35 -2.9" width="0.14" height="2.7" depth="0.14" color="#6E4A20" static-body shadow></a-box>
+<a-box position="-2.35 1.35 -0.3" width="0.14" height="2.7" depth="0.14" color="#6E4A20" static-body shadow></a-box>
+<a-box position=" 2.35 1.35 -0.3" width="0.14" height="2.7" depth="0.14" color="#6E4A20" static-body shadow></a-box>
 
 
 
@@ -1030,7 +1042,14 @@ AFRAME.registerComponent('one-shot-burst', {
   <!-- Spawner indépendant (spawn unique au chargement) -->
   <a-entity table-spawn></a-entity>
 
-  <a-entity spawn-targets="intervalMs:2000; maxActive:5; minX:-3; maxX:3; minZ:-4; maxZ:-1.0; baseY:1.5"></a-entity>
+<a-entity spawn-targets="
+  intervalMs:1500;
+  maxActive:6;
+  centerX:0; centerZ:-1.6;
+  radiusMin:12; radiusMax:18;
+  baseY:3.2;  yJitter:0.4;
+  targetScale:3.0"></a-entity>
+
 
 
   <a-sky color="#1b2026"></a-sky>

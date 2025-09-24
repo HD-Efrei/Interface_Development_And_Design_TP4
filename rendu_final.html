@@ -49,7 +49,7 @@
         const rig=rigEl.object3D;
         const yaw = THREE.MathUtils.degToRad(rigEl.getAttribute('rotation').y);
         const cos=Math.cos(yaw), sin=Math.sin(yaw);
-        const forward=this.vy;   // pousser vers l'avant :"forward"
+        const forward=this.vy;
         const strafe = this.vx;
         const step=this.data.speed*(dt/1000);
         const dx = (strafe*cos + forward*sin)*step;
@@ -77,7 +77,7 @@
       tick(t,dt){
         const rig=this.data.rig; if(!rig||!this.x) return;
         const rot=rig.getAttribute('rotation');
-        rot.y -= this.x * this.data.speedDeg * (dt/1000); // signe façon FPS
+        rot.y -= this.x * this.data.speedDeg * (dt/1000);
         rig.setAttribute('rotation', rot);
       },
       remove(){ this.el.removeEventListener('thumbstickmoved', this.onThumb); }
@@ -95,7 +95,6 @@ AFRAME.registerComponent('hover-highlight', {
     this.e0=(this.mat&&this.mat.emissive)? this.mat.emissive.clone():null;
     this.i0=(this.mat&&'emissiveIntensity'in this.mat)? this.mat.emissiveIntensity:0;
 
-    // ✅ Uniquement ces événements "propres"
     el.addEventListener('hover-start', ()=>this.set(true));
     el.addEventListener('hover-end',   ()=>this.set(false));
   },
@@ -128,11 +127,11 @@ AFRAME.registerComponent('table-spawn', {
   const afterLoad = () => {
     if (!this._did) { this._did = true; this.spawnAll(); }
 
-    // Manette : bouton B ⇒ respawn table+trio
+    // Manette : bouton B ⇒ respawn table
     const right = scene.querySelector('#rightCtl');
     if (right) right.addEventListener('bbuttondown', () => this._respawn());
 
-    // Clavier : 'b' ⇒ respawn table+trio
+    // Clavier : 'b' ⇒ respawn table
     window.addEventListener('keydown', e => {
       if ((e.key || '').toLowerCase() === 'b') this._respawn();
     });
@@ -147,7 +146,7 @@ AFRAME.registerComponent('table-spawn', {
     if (this._cool) return;
     this._cool = true;
     this.spawnAll();
-    setTimeout(() => (this._cool = false), 500); // anti double-clic
+    setTimeout(() => (this._cool = false), 500);
   },
 
   _make(tag, attrs) {
@@ -159,7 +158,7 @@ AFRAME.registerComponent('table-spawn', {
   _clearOld() {
   const nodes = this.el.sceneEl.querySelectorAll('.spawned-on-table');
   nodes.forEach(n => {
-    // 🔧 force la fin de surbrillance avant suppression
+n
     n.emit('hover-end', {by: this.el}, false);
     n.remove();
   });
@@ -194,22 +193,25 @@ let table = document.getElementById(this.data.tableId);
 }
 
 
-  // 2) Dessus de table
+   // 2) Dessus de table
   const tPos = table.getAttribute('position');
   const tH   = parseFloat(table.getAttribute('height')) || 0.05;
   const topY = tPos.y + tH / 2;
 
+
   // 3) Nettoyage des anciens objets (avec hover-end)
   this._clearOld();
 
-  // 4) Paramètres communs
+  // 4) Paramètres communs aux objets
   const common = {
-    class: 'grab-target hoverable spawned-on-table',
-    'hover-highlight': '',
-    'grabbable': '',
-    shadow: 'cast:true; receive:true',
-    material: 'roughness:0.5; metalness:0.05'
+  class: 'grab-target hoverable spawned-on-table',
+  'hover-highlight': '',
+  'grabbable': '',
+  'mark-held': '',
+  shadow: 'cast:true; receive:true',
+  material: 'roughness:0.5; metalness:0.05'
 };
+
 
   // 5) Cube
   scene.appendChild(this._make('a-box', {
@@ -229,24 +231,24 @@ let table = document.getElementById(this.data.tableId);
     position: `${tPos.x + 0.6} ${topY + 0.90} ${tPos.z - 0.8}`
   }));
 
-  // 7) “Pistolet”
+  // 7) Pistolet
     const gun = this._make('a-entity', {
     ...common,
+    'mark-held': '',
     position: `${tPos.x + 1.8} ${topY + 0.25} ${tPos.z + 0.2}`,
     rotation: `0 0 0`,
     scale: `0.8 0.8 0.8`,
     'gltf-model': '#pistolModel',
-    'gun-shoot': 'bulletSpeed:44; mass:0.01; radius:0.05; muzzle: 0 0 -0.40'
-    });
+    'gun-shoot': 'bulletSpeed:48; mass:0.01; radius:0.05; muzzle: 0 0 -0.40'
+  });
 
-    // ➜ active la physique quand le mesh est prêt
     gun.addEventListener('model-loaded', () => {
     gun.setAttribute('dynamic-body', 'mass:1; shape: box');
     });
 
     scene.appendChild(gun);
 
-  // 8) 🔧 Rafraîchir TOUS les raycasters après le spawn
+  // 8) Rafraîchir TOUS les raycasters après le spawn
   setTimeout(() => {
     this.el.sceneEl.querySelectorAll('[raycaster]').forEach(el => {
       const rc = el.components.raycaster;
@@ -262,9 +264,9 @@ AFRAME.registerComponent('front-spawn', {
   schema: { camera:{type:'selector'}, dist:{default:1.6}, yOffset:{default:0.25} },
 
   init(){
-    this._cool = false;               // anti-rebond
+    this._cool = false;
     this.spawn = this.spawn.bind(this);
-    this._trigger = () => {           // appelle spawn une seule fois / 300 ms
+    this._trigger = () => {
       if (this._cool) return;
       this._cool = true;
       this.spawn();
@@ -274,7 +276,7 @@ AFRAME.registerComponent('front-spawn', {
     // Manette : bouton A
     this.el.addEventListener('abuttondown', this._trigger);
 
-    // Clavier : 'a' (ignore les repeats)
+    // Clavier : touche a
     this._onKeyDown = (e)=>{
       const k = (e.key||'').toLowerCase();
       if (k === 'a' && !e.repeat) this._trigger();
@@ -292,13 +294,13 @@ AFRAME.registerComponent('front-spawn', {
   if (!camEl) return;
   const scene = this.el.sceneEl;
 
-  // position "devant la caméra"
+  // spawn devant la caméra
   const origin = camEl.object3D.getWorldPosition(new THREE.Vector3());
   const dir    = camEl.object3D.getWorldDirection(new THREE.Vector3()).normalize().negate();
   const pos    = origin.clone().add(dir.multiplyScalar(this.data.dist));
   pos.y += this.data.yOffset;
 
-  // aléatoire cube / sphère
+  // aléatoire cube ou sphère
   const isBox = Math.random() < 0.5;
   const el = document.createElement(isBox ? 'a-box' : 'a-sphere');
   if (isBox) {
@@ -317,10 +319,12 @@ AFRAME.registerComponent('front-spawn', {
   el.setAttribute('hover-highlight','');
   el.setAttribute('dynamic-body','mass:1');
   el.setAttribute('grabbable','');
+  el.setAttribute('mark-held','');
+
 
   scene.appendChild(el);
 
-  // 🔧 Refresh raycasters après l’insertion (évite le hover fantôme / cache obsolète)
+  // Refresh raycasters (donc les lignes) après l’insertion
   setTimeout(() => {
     this.el.sceneEl.querySelectorAll('[raycaster]').forEach(n => {
       const rc = n.components.raycaster;
@@ -331,108 +335,92 @@ AFRAME.registerComponent('front-spawn', {
 
 });
 
-// Surbrillance exclusive pilotée par le rayon de la main
-AFRAME.registerComponent('laser-hover', {
-  init(){
-    this._last = null;
-    this._onInt  = this.onIntersect.bind(this);
-    this._onClear= this.onClear.bind(this);
-    this.el.addEventListener('raycaster-intersection', this._onInt);
-    this.el.addEventListener('raycaster-intersection-cleared', this._onClear);
-  },
-  tick(){
-    // 🔧 si la dernière cible a été supprimée ou masquée, nettoie
-    if (this._last && (!this._last.isConnected || !this._last.object3D.visible)) {
-      this.setHover(this._last, false);
-      this._last = null;
-    }
-  },
-  setHover(target, on){
-    if (!target) return;
-    target.emit(on ? 'hover-start' : 'hover-end', {by: this.el}, false);
-  },
-  onIntersect(e){
-    const hits = e.detail.els || [];
-    const first = hits[0] || null;
-    if (first !== this._last){
-      if (this._last) this.setHover(this._last, false);
-      if (first)      this.setHover(first, true);
-      this._last = first;
-    }
-  },
-  onClear(){
-    if (this._last){ this.setHover(this._last, false); this._last = null; }
-  }
-});
-
-
-
-// Proxy: ne laisse passer que le 1er hit du raycaster (évite multi-grab)
-// Proxy: transforme le 1er hit du raycaster en "hitstart/hitend" (comme sphere-collider)
+// Surbrillance par le rayon de la main
 AFRAME.registerComponent('raycast-collider-proxy', {
   init(){
     this._curr = null;
 
-    this._onInt = e => {
-      const first = (e.detail && e.detail.els && e.detail.els[0]) || null;
-      if (first === this._curr) return;
+    const firstFromRay = () => {
+      const rc = this.el.components.raycaster;
+      if (!rc) return null;
+      if (rc.intersectedEls && rc.intersectedEls.length) return rc.intersectedEls[0];
+      if (rc.intersections && rc.intersections.length) {
+        let obj = rc.intersections[0].object;
+        while (obj && !obj.el) obj = obj.parent;
+        return obj && obj.el;
+      }
+      return null;
+    };
+    const emitEnd   = (el)=> el && this.el.emit('hitend',   {els:[el]}, false);
+    const emitStart = (el)=> el && this.el.emit('hitstart', {els:[el]}, false);
+    const hover = (el,on)=> el && el.emit(on?'hover-start':'hover-end', {by:this.el}, false);
 
-      // Si on change d'objet sans "cleared", prévenir super-hands de l'ancien
-      if (this._curr) {
-        this.el.emit('hitend', {els:[this._curr]}, false);
+    this._onInt = () => {
+      const first = firstFromRay();
+      if (first === this._curr) return;
+      hover(this._curr, false);   // <- retire l’hover de l’ancien
+      emitEnd(this._curr);
+      if (first){
+        emitStart(first);
+        hover(first, true);       // <- met l’hover sur le nouveau
       }
-      if (first) {
-        this.el.emit('hitstart', {els:[first]}, false);
-      }
-      this._curr = first;
+      this._curr = first || null;
     };
 
     this._onClear = () => {
-      if (this._curr) {
-        this.el.emit('hitend', {els:[this._curr]}, false);
-        this._curr = null;
-      } else {
-        // par compatibilité : payload vide comme sphere-collider
-        this.el.emit('hitend', {els:[]}, false);
+      hover(this._curr, false);   // <- nettoie le hover si le rayon ne touche plus rien
+      emitEnd(this._curr);
+      this._curr = null;
+      this.el.emit('hitend', {els:[]}, false);
+    };
+
+    this._onGripDown = (e)=>{
+      const first = firstFromRay();
+      if (!first){ e.stopPropagation(); e.preventDefault && e.preventDefault(); return; }
+      if (first !== this._curr){
+        hover(this._curr, false);
+        emitEnd(this._curr);
+        emitStart(first);
+        hover(first, true);
+        this._curr = first;
       }
     };
 
-    this._tickClean = () => {
-      // Si l'objet courant a été supprimé/masqué, on envoie un hitend de secours
-      if (this._curr && (!this._curr.isConnected || !this._curr.object3D.visible)) {
-        this.el.emit('hitend', {els:[this._curr]}, false);
-        this._curr = null;
-      }
-    };
+    this._onGripUp  = ()=> this._onClear();
+    this._onGrabEnd = ()=> this._onClear();
 
     this.el.addEventListener('raycaster-intersection', this._onInt);
     this.el.addEventListener('raycaster-intersection-cleared', this._onClear);
-    this.el.sceneEl.addEventListener('loaded', () => this._raf());
-  },
+    this.el.addEventListener('gripdown', this._onGripDown, true);
+    this.el.addEventListener('gripup', this._onGripUp, true);
+    this.el.addEventListener('grab-end', this._onGrabEnd);
 
+    this._raf = () => {
+      if (!this.el.isConnected) return;
+      if (this._curr && (!this._curr.isConnected || !this._curr.object3D.visible)) this._onClear();
+      requestAnimationFrame(this._raf);
+    };
+    this._raf();
+  },
   remove(){
     this.el.removeEventListener('raycaster-intersection', this._onInt);
     this.el.removeEventListener('raycaster-intersection-cleared', this._onClear);
-    this._stop = true;
-  },
-
-  // petit raf pour surveiller la disparition de _curr sans alourdir tick()
-  _raf(){
-    if (this._stop) return;
-    this._tickClean();
-    requestAnimationFrame(()=>this._raf());
+    this.el.removeEventListener('gripdown', this._onGripDown, true);
+    this.el.removeEventListener('gripup', this._onGripUp, true);
+    this.el.removeEventListener('grab-end', this._onGrabEnd);
   }
 });
 
 
 
-// Clavier: E pour grab (down) / drop (up) — utile en desktop
+
+// Clavier: E pour grab
 AFRAME.registerComponent('desktop-grab-keys', {
   schema:{ key:{default:'e'} },
   init(){
     this._down = e=>{
       if ((e.key||'').toLowerCase()!==this.data.key) return;
-      this.el.emit('keyEdown');   // événement "bouton" supplémentaire
+      this.el.emit('keyEdown');
     };
     this._up = e=>{
       if ((e.key||'').toLowerCase()!==this.data.key) return;
@@ -448,16 +436,61 @@ AFRAME.registerComponent('desktop-grab-keys', {
 });
 
 
-// --- GUN: tire une balle physique quand on appuie sur la gâchette en tenant l'arme ---
+
+// Marque un objet comme tenu pendant le grab
+AFRAME.registerComponent('mark-held', {
+  init(){
+    this._onGrabStart = () => this.el.classList.add('held');
+    this._onGrabEnd   = () => this.el.classList.remove('held');
+    this._onStateRemoved = (e)=>{
+      if (e.detail === 'grabbed') this.el.classList.remove('held');
+    };
+    this.el.addEventListener('grab-start', this._onGrabStart);
+    this.el.addEventListener('grab-end',   this._onGrabEnd);
+    this.el.addEventListener('stateremoved', this._onStateRemoved);
+  },
+  remove(){
+    this.el.removeEventListener('grab-start', this._onGrabStart);
+    this.el.removeEventListener('grab-end',   this._onGrabEnd);
+    this.el.removeEventListener('stateremoved', this._onStateRemoved);
+  }
+});
+
+
+
+// Bloque le grip si le raycaster ne touche rien
+AFRAME.registerComponent('grip-gate-by-ray', {
+  init(){
+    const el = this.el;
+    this._onGripDown = (e)=>{
+      const rc = el.components.raycaster;
+      const hasHit = !!(rc && rc.intersections && rc.intersections.length);
+      if (!hasHit){
+        e.stopPropagation();
+        e.preventDefault && e.preventDefault();
+      }
+    };
+    el.addEventListener('gripdown', this._onGripDown, true);
+  },
+  remove(){
+    this.el.removeEventListener('gripdown', this._onGripDown, true);
+  }
+});
+
+
+
+
+
+// Pistolet : tire une balle physique quand on appuie sur la gâchette en tenant l'arme
 AFRAME.registerComponent('gun-shoot', {
   schema: {
     bulletSpeed: {default: 48},     // m/s
-    cooldownMs:  {default: 180},    // anti-spam tir
+    cooldownMs:  {default: 180},    // cooldown entre 2 tirs (ms)
     bulletLife:  {default: 3000},   // auto-détruit la balle (ms)
-    radius:      {default: 0.05},   // rayon balle
-    mass:        {default: 0.01},   // masse balle
-    muzzle:      {type:'vec3', default:{x:0, y:0, z:-0.40}}, // bouche du canon (local)
-    haptic:      {default: 0.4},     // vibrations (si dispo)
+    radius:      {default: 0.05},   // rayon de la balle
+    mass:        {default: 0.01},   // masse de la balle
+    muzzle:      {type:'vec3', default:{x:0, y:0, z:-0.40}}, // bouche du canon
+    haptic:      {default: 0.4},     // vibrations
     linDamp:     {default: 0.0},     // pas de frein linéaire
     angDamp:     {default: 0.0}      // pas de frein angulaire
   },
@@ -466,23 +499,21 @@ AFRAME.registerComponent('gun-shoot', {
     this._held = null;
     this._cool = false;
 
-    this._onGripDown = () => this.shoot();
+    this._onTrigger = () => this.shoot();
 
-    this._onGrabStart = e => {
-      const hand = e.detail && e.detail.hand;
-      if (!hand || this._held) return;
-      this._held = {handEl: hand};
-      hand.addEventListener('gripdown',     this._onGripDown);    // VR réel
-      hand.addEventListener('squeezestart', this._onGripDown);    // émulateur
-    };
+  this._onGrabStart = e => {
+    const hand = e.detail && e.detail.hand;
+    if (!hand || this._held) return;
+    this._held = {handEl: hand};
+    hand.addEventListener('triggerdown', this._onTrigger);
+  };
+  this._onGrabEnd = () => {
+    if (!this._held) return;
+    const {handEl} = this._held;
+    handEl.removeEventListener('triggerdown', this._onTrigger);
+    this._held = null;
+  };
 
-    this._onGrabEnd = () => {
-      if (!this._held) return;
-      const {handEl} = this._held;
-      handEl.removeEventListener('gripdown',     this._onGripDown);
-      handEl.removeEventListener('squeezestart', this._onGripDown);
-      this._held = null;
-    };
 
     this.el.addEventListener('grab-start', this._onGrabStart);
     this.el.addEventListener('grab-end',   this._onGrabEnd);
@@ -503,16 +534,17 @@ AFRAME.registerComponent('gun-shoot', {
     const m0 = new THREE.Vector3(this.data.muzzle.x, this.data.muzzle.y, this.data.muzzle.z);
     const m1 = new THREE.Vector3(this.data.muzzle.x, this.data.muzzle.y, this.data.muzzle.z - 0.05);
     const p0 = this.el.object3D.localToWorld(m0.clone()); // bouche
-    const p1 = this.el.object3D.localToWorld(m1.clone()); // un peu devant
+    const p1 = this.el.object3D.localToWorld(m1.clone());
     const dir = p1.clone().sub(p0).normalize();
 
-    // --- naissance de la balle 12 cm devant la bouche (évite le collider du gun) ---
+    // --- naissance de la balle 12 cm devant la bouche ---
     const spawn = p0.clone().add(dir.clone().multiplyScalar(0));
 
-    // --- création de la balle (physique sphère + aucun amortissement) ---
+    // --- création de la balle ---
     const b = document.createElement('a-sphere');
     b.classList.add('bullet');
     b.setAttribute('radius', this.data.radius);
+    b.setAttribute('bullet-sweep', `radius:${this.data.radius}`);
     b.setAttribute('color', '#ffd18b');
     b.setAttribute('material', 'emissive:#ffbb55; metalness:0.1; roughness:0.2');
     b.setAttribute('position', `${spawn.x} ${spawn.y} ${spawn.z}`);
@@ -524,7 +556,7 @@ AFRAME.registerComponent('gun-shoot', {
     const v = dir.multiplyScalar(this.data.bulletSpeed);
     console.log('[GUN] dir=', dir.toArray(), 'speed=', this.data.bulletSpeed);
 
-    // --- appliquer la vitesse au step suivant + collisions off 80ms ---
+    // appliquer la vitesse au step suivant + collisions off 80ms ---
     b.addEventListener('body-loaded', function onBody () {
       b.removeEventListener('body-loaded', onBody);
       if (!b.body) return;
@@ -540,7 +572,6 @@ AFRAME.registerComponent('gun-shoot', {
         b.body.velocity.set(v.x, v.y, v.z);
         b.body.angularVelocity.set(0, 0, 0);
 
-        // petit boost optionnel
         if (b.body.applyImpulse && window.CANNON) {
           b.body.applyImpulse(
             new CANNON.Vec3(v.x * 0.04, v.y * 0.04, v.z * 0.04),
@@ -553,7 +584,7 @@ AFRAME.registerComponent('gun-shoot', {
       }, 0);
     });
 
-    // vibration (si supportée)
+    // vibration
     try {
       const input = this._held.handEl.components['oculus-touch-controls'] || this._held.handEl.components['tracked-controls'];
       input?.controller?.hapticActuators?.[0]?.pulse(this.data.haptic, 50);
@@ -567,17 +598,61 @@ AFRAME.registerComponent('gun-shoot', {
 
 
 
+// Détection par balayage entre deux frames si  au cas où les balles sont rapides
+AFRAME.registerComponent('bullet-sweep', {
+  schema:{ radius:{default:0.05} },
+  init(){
+    this._prev = new THREE.Vector3();
+    this._curr = new THREE.Vector3();
+    this._ray  = new THREE.Raycaster();
+    this.el.object3D.getWorldPosition(this._prev);
+  },
+  tick(){
+    const o = this.el.object3D;
+    o.getWorldPosition(this._curr);
+    const delta = this._curr.clone().sub(this._prev);
+    const dist  = delta.length();
+    if (dist > 0){
+      const dir = delta.clone().normalize();
+      this._ray.set(this._prev, dir);
+      this._ray.far = dist + this.data.radius*1.2;
 
-/** Cible : écoute la collision avec une "bullet", joue un son et pop des particules */
-/** Cible : collision avec une "bullet" -> son + effet (particles ou shatter) + disparition */
+      // on teste contre tous les meshes des cibles
+      const meshes = [];
+      this.el.sceneEl.querySelectorAll('.target').forEach(t=>{
+        const m = t.getObject3D('mesh'); if (m) meshes.push(m);
+      });
+      const hits = this._ray.intersectObjects(meshes, true);
+      if (hits.length){
+        // retrouve l'entity de la cible touchée
+        let obj = hits[0].object;
+        while (obj && !obj.el) obj = obj.parent;
+        const targetEl = obj && obj.el;
+        if (targetEl){
+          // déclenche le même pipeline que la physique
+          targetEl.emit('collide', {body:{el:this.el}}, false);
+          // supprime la balle
+          this.el.parentNode && this.el.parentNode.removeChild(this.el);
+          return;
+        }
+      }
+    }
+    this._prev.copy(this._curr);
+  }
+});
+
+
+
+
+/** Cible : collision avec une balle -> son + effet particles + disparition */
 AFRAME.registerComponent('target-hit', {
   schema: {
     volume: {default: 0.6},
-    effect: {default: 'particles'} // 'particles' | 'shatter'
+    effect: {default: 'particles'} // 'particles'
   },
 
   init(){
-    // Attache un son s'il n'y en a pas déjà
+    // Attache un son
     if (!this.el.components.sound) {
       this.el.setAttribute(
         'sound',
@@ -599,11 +674,11 @@ AFRAME.registerComponent('target-hit', {
         this._spawnParticles(otherEl);
       }
 
-      // 3) supprimer la cible (petit délai pour laisser l’effet se jouer)
+      // 3) supprimer la cible
       const target = this.el;
       setTimeout(()=> target.parentNode && target.parentNode.removeChild(target), 60);
 
-      // 4) supprimer aussi la balle
+      // 4) supprimer la balle
       setTimeout(()=> otherEl.parentNode && otherEl.parentNode.removeChild(otherEl), 0);
     };
 
@@ -614,18 +689,20 @@ AFRAME.registerComponent('target-hit', {
     this.el.removeEventListener('collide', this._onCollide);
   },
 
-  // --- Effet "PARTICULES" (pas de texture pour éviter les erreurs d'URL) ---
+  // --- Effet "PARTICULES" ---
   _spawnParticles(otherEl){
   const scene = this.el.sceneEl;
   const wp = otherEl.object3D.getWorldPosition(new THREE.Vector3());
   const p = document.createElement('a-entity');
   p.setAttribute('position', `${wp.x} ${wp.y} ${wp.z}`);
-  p.setAttribute('one-shot-burst', 'count:160; life:650; speed:1.8; spread:1.3; size:0.055');
+  p.setAttribute('one-shot-burst', '');
   scene.appendChild(p);
 }
 ,
 
-  // --- Effet "SHATTER" (petits fragments physiques) ---
+
+
+  // --- Effet "SHATTER" ---
   _spawnDebris(){
     const scene = this.el.sceneEl;
     const color = (this.el.getAttribute('color') || '#ffaa66');
@@ -633,7 +710,7 @@ AFRAME.registerComponent('target-hit', {
     const quat = this.el.object3D.getWorldQuaternion(new THREE.Quaternion());
 
     const FRAG_N = 12;          // nombre de morceaux
-    const FRAG_S = 0.08;        // taille (≈ 8 cm)
+    const FRAG_S = 0.08;        // taille
     const LIFE   = 1800;        // durée de vie (ms)
     const MASS   = 0.04;        // masse
 
@@ -647,9 +724,8 @@ AFRAME.registerComponent('target-hit', {
       f.setAttribute('dynamic-body', `mass:${MASS}; shape: box; linearDamping:0.01; angularDamping:0.01`);
       scene.appendChild(f);
 
-      // vitesse radiale aléatoire
       const dir = new THREE.Vector3(Math.random()-0.5, Math.random()-0.2, Math.random()-0.5).normalize();
-      const speed = 2.5 + Math.random()*2.0; // m/s
+      const speed = 2.5 + Math.random()*2.0;
       const vel = dir.multiplyScalar(speed);
 
       f.addEventListener('body-loaded', function onBody(){
@@ -675,68 +751,81 @@ AFRAME.registerComponent('spawn-targets', {
   schema: {
     intervalMs: {default: 2000},
     maxActive:  {default: 5},
-    // zone XZ (en mètres) où placer les cibles
-    minX: {default: -3}, maxX: {default: 3},
-    minZ: {default: -4}, maxZ: {default: -1.0},
-    baseY:{default: 2.9} // au-dessus de ta table (~2.7) pour être bien visible
+
+    // centre du cercle
+    centerX: {default: 0},
+    centerZ: {default: -2},
+
+    // anneau de spawn (mètres)
+    radiusMin: {default: 6},
+    radiusMax: {default: 10},
+
+    // hauteur moyenne + variation verticale
+    baseY:    {default: 4.0},
+    yJitter:  {default: 0.6},
+
+    // facteur d’échelle global des cibles
+    targetScale: {default: 1.8}
   },
+
   init(){
     this._timer = setInterval(()=> this._tickSpawn(), this.data.intervalMs);
   },
-  remove(){
-    clearInterval(this._timer);
-  },
-  _activeCount(){
-    return this.el.sceneEl.querySelectorAll('.target').length;
-  },
+  remove(){ clearInterval(this._timer); },
+  _activeCount(){ return this.el.sceneEl.querySelectorAll('.target').length; },
   _rand(a,b){ return a + Math.random()*(b-a); },
-  _makeTarget(){
-    const scene = this.el.sceneEl;
-    const isBox = Math.random() < 0.6; // box/cone
-    const el = document.createElement(isBox ? 'a-box' : 'a-cone');
 
-    // petite taille aléatoire
+  _makeTarget(){
+    const d = this.data;
+    const scene = this.el.sceneEl;
+
+    // angle + rayon (uniforme sur l’anneau)
+    const theta = this._rand(0, Math.PI*2);
+    const r     = this._rand(d.radiusMin, d.radiusMax);
+    const x     = d.centerX + Math.cos(theta) * r;
+    const z     = d.centerZ + Math.sin(theta) * r;
+    const y     = d.baseY + this._rand(-d.yJitter, d.yJitter);
+
+    // géométrie (grossie)
+    const isBox = Math.random() < 0.6;
+    const el    = document.createElement(isBox ? 'a-box' : 'a-cone');
+
+    const S = d.targetScale; // facteur d’échelle global
     if (isBox){
-      const s = this._rand(0.35, 0.6);
-      el.setAttribute('width', s);
+      const s = this._rand(0.6, 1.0) * S;
+      el.setAttribute('width',  s);
       el.setAttribute('height', s);
-      el.setAttribute('depth', s);
+      el.setAttribute('depth',  s);
     } else {
-      el.setAttribute('radius-bottom', this._rand(0.25, 0.4));
-      el.setAttribute('height', this._rand(0.45, 0.65));
+      el.setAttribute('radius-bottom', this._rand(0.45, 0.7) * S);
+      el.setAttribute('height',        this._rand(0.7,  1.1) * S);
     }
 
-    // position aléatoire dans la zone
-    const x = this._rand(this.data.minX, this.data.maxX);
-    const z = this._rand(this.data.minZ, this.data.maxZ);
-    const y = this.data.baseY + this._rand(0, 0.4);
     el.setAttribute('position', `${x} ${y} ${z}`);
-
-    // visuel
     el.setAttribute('color', '#'+(Math.random()*0xFFFFFF|0).toString(16).padStart(6,'0'));
     el.setAttribute('material','roughness:0.6; metalness:0.05');
     el.setAttribute('shadow','cast:true; receive:true');
 
-    // physique : qu'elles puissent tomber / se faire pousser
-    el.setAttribute('dynamic-body','mass:1');
+    // on garde de la physique mais pas de masse pour que les cibles ne tombent pas
+    el.setAttribute('dynamic-body','mass:0');
 
-    // balises
-    el.classList.add('target', 'grab-target'); // grab-target pour les raycasters existants
-
-    // collision -> son + particules + despawn
+    // tags + hit
+    el.classList.add('target','grab-target');
+    el.setAttribute('mark-held','');
     el.setAttribute('target-hit','volume:0.65');
 
     scene.appendChild(el);
   },
+
   _tickSpawn(){
     if (this._activeCount() >= this.data.maxActive) return;
     this._makeTarget();
 
-    // petit refresh des raycasters (même routine que tu as déjà)
+    // refresh raycasters
     setTimeout(() => {
-      this.el.sceneEl.querySelectorAll('[raycaster]').forEach(n => {
+      this.el.sceneEl.querySelectorAll('[raycaster]').forEach(n=>{
         const rc = n.components.raycaster;
-        if (rc && rc.refreshObjects) rc.refreshObjects();
+        rc && rc.refreshObjects && rc.refreshObjects();
       });
     }, 0);
   }
@@ -745,12 +834,14 @@ AFRAME.registerComponent('spawn-targets', {
 
 
 
-// Petit burst de particules en THREE.Points, auto-destroy
+// Burst de particules en THREE.Points, auto-destroy
 AFRAME.registerComponent('one-shot-burst', {
   schema:{
-    count:{default:160}, life:{default:650}, // ms
-    speed:{default:1.6}, spread:{default:1.3},
-    size:{default:0.06}
+    count:{default:320},  // nombre de particules
+    life:{default:800},   // temps de vie
+    speed:{default:2.6},  // rayon + vitesse initiale
+    spread:{default:2.0}, // taille du cône
+    size:{default:0.08}   // taille des particules
   },
   init(){
     const n = this.data.count;
@@ -780,16 +871,15 @@ AFRAME.registerComponent('one-shot-burst', {
     const dtS = dt/1000;
     const pos = this._points.geometry.attributes.position.array;
     const vel = this._vel;
-    // gravité simple
+    // gravité
     for (let i=0;i<vel.length;i+=3){
-      vel[i+1] += -2.0*dtS; // g
+      vel[i+1] += -2.0*dtS;
       pos[i  ] += vel[i  ]*dtS;
       pos[i+1] += vel[i+1]*dtS;
       pos[i+2] += vel[i+2]*dtS;
     }
     this._points.geometry.attributes.position.needsUpdate = true;
     this._t += dt;
-    // fondu
     const life = this.data.life;
     const m = this._points.material;
     m.opacity = Math.max(0, 1 - this._t/life);
@@ -810,10 +900,53 @@ AFRAME.registerComponent('one-shot-burst', {
 <body>
   <div class="overlay">
     <strong>Commandes Quest</strong><br/>
-    🧭 Stick gauche : se déplacer (avant/arrière corrigé) • 🔁 Stick droit : rotation <b>lisse</b><br/>
-    🎯 Lasers par défaut depuis chaque manette • 🤏 Trigger : grab / drop<br/>
-    ➕ Spawn objet : bouton <b>A</b> (droite) ou <kbd>N</kbd> (clavier)
+    Stick gauche : se déplacer (avant/arrière corrigé) • Stick droit : rotation <b>lisse</b><br/>
+    Lasers par défaut depuis chaque manette • Trigger : grab / drop<br/>
+    Spawn objet : bouton <b>A</b> (droite) ou <kbd>N</kbd> (clavier)
   </div>
+
+
+
+  <!-- --- Sélecteur de page (hors VR) --- -->
+<style>
+  .page-switcher{
+    position:fixed; right:12px; top:12px; z-index:99999;
+    display:flex; gap:8px; padding:8px; background:#0009;
+    border-radius:10px; backdrop-filter: blur(4px);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  .page-switcher a{
+    display:inline-block; padding:6px 10px; border-radius:8px;
+    text-decoration:none; color:#fff; background:#2b6cb0;
+  }
+  .page-switcher a:hover{ background:#2c5282; }
+  .page-switcher a.active{
+    background:#4a5568; cursor:default; opacity:.7; pointer-events:none;
+  }
+</style>
+
+<nav class="page-switcher" role="navigation" aria-label="Changer de page">
+  <a data-file="index.html" href="index.html">Test</a>
+  <a data-file="test_navigateur.html" href="test_navigateur.html">Test_Navigateur</a>
+  <a data-file="rendu_final.html" href="rendu_final.html">Final</a>
+</nav>
+
+<script>
+  // Désactive le lien de la page courante (met en "active").
+  (function(){
+    const file = (location.pathname.split('/').pop() || 'index.html').toLowerCase();
+    document.querySelectorAll('.page-switcher a').forEach(a=>{
+      if(a.getAttribute('data-file').toLowerCase() === file){
+        a.classList.add('active');
+        a.setAttribute('aria-current','page');
+        a.removeAttribute('href');
+      }
+    });
+  })();
+</script>
+
+
+
 
 <a-scene
 
@@ -849,8 +982,8 @@ AFRAME.registerComponent('one-shot-burst', {
   oculus-touch-controls="hand: left"
   left-stick-move="rig:#rig; speed:2.2; dead:0.18"
   laser-controls="hand: left"
-  raycaster="objects:.grab-target; showLine:true; far:8; interval:0"
-  laser-hover
+  raycaster="objects:.grab-target:not(.held); showLine:true; far:8; interval:0"
+  grip-gate-by-ray=""
   raycast-collider-proxy
   static-body="shape: sphere; sphereRadius: 0.04"
   desktop-grab-keys="key: e"
@@ -858,8 +991,9 @@ AFRAME.registerComponent('one-shot-burst', {
     colliderEvent: hitstart;
     colliderEndEvent: hitend;
     colliderEventProperty: els;
-    grabStartButtons: triggerdown, selectstart, keyEdown;
-    grabEndButtons:   triggerup,   selectend,   keyEup">
+    grabStartButtons: gripdown, keyEdown;
+    grabEndButtons:   gripup,   keyEup"
+>
 </a-entity>
 
 <!-- MAIN DROITE -->
@@ -867,8 +1001,8 @@ AFRAME.registerComponent('one-shot-burst', {
   oculus-touch-controls="hand: right"
   right-stick-smoothturn="rig:#rig; speedDeg:140; dead:0.18"
   laser-controls="hand: right"
-  raycaster="objects:.grab-target; showLine:true; far:8; interval:0"
-  laser-hover
+  raycaster="objects:.grab-target:not(.held); showLine:true; far:8; interval:0"
+  grip-gate-by-ray=""
   raycast-collider-proxy
   static-body="shape: sphere; sphereRadius: 0.04"
   desktop-grab-keys="key: e"
@@ -876,8 +1010,8 @@ AFRAME.registerComponent('one-shot-burst', {
     colliderEvent: hitstart;
     colliderEndEvent: hitend;
     colliderEventProperty: els;
-    grabStartButtons: triggerdown, selectstart, keyEdown;
-    grabEndButtons:   triggerup,   selectend,   keyEup"
+    grabStartButtons: gripdown, keyEdown;
+    grabEndButtons:   gripup,   keyEup"
 
   front-spawn="camera:#cam; dist:1.4; yOffset:0.35">
 </a-entity>
@@ -885,32 +1019,36 @@ AFRAME.registerComponent('one-shot-burst', {
 
 
 
+  </a-entity>
 
-
-  </a-entity> <!-- ✅ ferme bien #rig ici -->
-
-<!-- TABLE plus haute et plus grande -->
+<!-- TABLE -->
 <a-box id="tableTop"
-       position="0 2.7 -1.6"
+       position="0 1.2 -1.6"
        width="5" height="0.14" depth="2.8"
        color="#8B5A2B"
        static-body
        shadow="cast:true;receive:true"></a-box>
 
-<!-- Pieds relevés -->
-<a-box position="-2.35 1.35 -2.9" width="0.14" height="2.7" depth="0.14" color="#6E4A20" static-body shadow></a-box>
-<a-box position=" 2.35 1.35 -2.9" width="0.14" height="2.7" depth="0.14" color="#6E4A20" static-body shadow></a-box>
-<a-box position="-2.35 1.35 -0.3" width="0.14" height="2.7" depth="0.14" color="#6E4A20" static-body shadow></a-box>
-<a-box position=" 2.35 1.35 -0.3" width="0.14" height="2.7" depth="0.14" color="#6E4A20" static-body shadow></a-box>
+<!-- Pieds adaptés -->
+<a-box position="-2.35 0.6 -2.9" width="0.14" height="1.2" depth="0.14" color="#6E4A20" static-body shadow></a-box>
+<a-box position=" 2.35 0.6 -2.9" width="0.14" height="1.2" depth="0.14" color="#6E4A20" static-body shadow></a-box>
+<a-box position="-2.35 0.6 -0.3" width="0.14" height="1.2" depth="0.14" color="#6E4A20" static-body shadow></a-box>
+<a-box position=" 2.35 0.6 -0.3" width="0.14" height="1.2" depth="0.14" color="#6E4A20" static-body shadow></a-box>
 
 
 
 
-  <!-- ✅ Spawner indépendant (spawn unique au load) -->
+
+  <!-- Spawner indépendant (spawn unique au chargement) -->
   <a-entity table-spawn></a-entity>
 
-  <a-entity spawn-targets="intervalMs:2000; maxActive:5; minX:-3; maxX:3; minZ:-4; maxZ:-1.0; baseY:2.9"></a-entity>
-
+  <a-entity spawn-targets="
+  intervalMs:1500;
+  maxActive:6;
+  centerX:0; centerZ:-1.6;
+  radiusMin:12; radiusMax:18;
+  baseY:5.4;  yJitter:0.8;
+  targetScale:3.0"></a-entity>
 
   <a-sky color="#1b2026"></a-sky>
 </a-scene>
