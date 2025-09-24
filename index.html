@@ -204,12 +204,14 @@ let table = document.getElementById(this.data.tableId);
 
   // 4) Paramètres communs
   const common = {
-    class: 'grab-target hoverable spawned-on-table',
-    'hover-highlight': '',
-    'grabbable': '',
-    shadow: 'cast:true; receive:true',
-    material: 'roughness:0.5; metalness:0.05'
+  class: 'grab-target hoverable spawned-on-table',
+  'hover-highlight': '',
+  'grabbable': '',
+  'mark-held': '',
+  shadow: 'cast:true; receive:true',
+  material: 'roughness:0.5; metalness:0.05'
 };
+
 
   // 5) Cube
   scene.appendChild(this._make('a-box', {
@@ -232,12 +234,13 @@ let table = document.getElementById(this.data.tableId);
   // 7) “Pistolet”
     const gun = this._make('a-entity', {
     ...common,
+    'mark-held': '',
     position: `${tPos.x + 1.8} ${topY + 0.25} ${tPos.z + 0.2}`,
-    rotation: `0 0 0`,
+    rotation: `0 180 0`,
     scale: `0.8 0.8 0.8`,
     'gltf-model': '#pistolModel',
-    'gun-shoot': 'bulletSpeed:44; mass:0.01; radius:0.05; muzzle: 0 0 -0.40'
-    });
+    'gun-shoot': 'bulletSpeed:48; mass:0.01; radius:0.05; muzzle: 0 0 -0.40'
+  });
 
     // ➜ active la physique quand le mesh est prêt
     gun.addEventListener('model-loaded', () => {
@@ -317,6 +320,8 @@ AFRAME.registerComponent('front-spawn', {
   el.setAttribute('hover-highlight','');
   el.setAttribute('dynamic-body','mass:1');
   el.setAttribute('grabbable','');
+  el.setAttribute('mark-held','');
+
 
   scene.appendChild(el);
 
@@ -452,29 +457,17 @@ AFRAME.registerComponent('desktop-grab-keys', {
 // Marque un objet comme "tenu" pendant le grab pour l'exclure du raycaster
 AFRAME.registerComponent('mark-held', {
   init(){
-    this._onGrabStart = () => {
-      this.el.classList.add('held');
-      // refresh des raycasters pour prendre en compte :not(.held)
-      this._refreshRaycasters();
-    };
-    this._onGrabEnd = () => {
-      this.el.classList.remove('held');
-      this._refreshRaycasters();
-    };
+    this._onGrabStart = () => this.el.classList.add('held');
+    this._onGrabEnd   = () => this.el.classList.remove('held');
     this.el.addEventListener('grab-start', this._onGrabStart);
     this.el.addEventListener('grab-end',   this._onGrabEnd);
   },
   remove(){
     this.el.removeEventListener('grab-start', this._onGrabStart);
     this.el.removeEventListener('grab-end',   this._onGrabEnd);
-  },
-  _refreshRaycasters(){
-    this.el.sceneEl.querySelectorAll('[raycaster]').forEach(n=>{
-      const rc = n.components.raycaster;
-      if (rc && rc.refreshObjects) rc.refreshObjects();
-    });
   }
 });
+
 
 
 
@@ -754,6 +747,8 @@ AFRAME.registerComponent('spawn-targets', {
 
     // balises
     el.classList.add('target', 'grab-target'); // grab-target pour les raycasters existants
+
+    el.setAttribute('mark-held','');
 
     // collision -> son + particules + despawn
     el.setAttribute('target-hit','volume:0.65');
